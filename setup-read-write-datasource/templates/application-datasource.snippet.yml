@@ -1,0 +1,36 @@
+# Add this block to application.yml (or each application-*.yml profile).
+# write -> primary, read -> replica. Each side accepts a list of URLs.
+
+app:
+  datasource:
+    write:
+      urls:
+        - "jdbc:mysql://primary-host:3306/mydb?serverTimezone=Asia/Hong_Kong"
+      driver-class-name: com.mysql.cj.jdbc.Driver
+      username: appuser
+      password: secret
+      maximum-pool-size: 10
+      minimum-idle: 1
+      connection-timeout: 30000
+      idle-timeout: 600000
+    read:
+      urls:
+        - "jdbc:mysql://replica-host:3306/mydb?serverTimezone=Asia/Hong_Kong"
+        # add more replicas to load-balance across them:
+        # - "jdbc:mysql://replica-2-host:3306/mydb?serverTimezone=Asia/Hong_Kong"
+      driver-class-name: com.mysql.cj.jdbc.Driver
+      username: readonly
+      password: secret
+      maximum-pool-size: 10
+      minimum-idle: 1
+      connection-timeout: 30000
+      idle-timeout: 600000
+
+# Disable the DB health check on profiles where the replica is unreachable,
+# otherwise the actuator creates one indicator per DataSource bean and the
+# unreachable replica marks the app DOWN.
+#
+# management:
+#   health:
+#     db:
+#       enabled: false
