@@ -1,0 +1,40 @@
+# TypeScript Express + AWS Lambda + Serverless Framework boilerplate
+# Docs: https://www.serverless.com/framework/docs
+service: my-express-app        # TODO: rename to your project
+frameworkVersion: '3'
+
+plugins:
+  - serverless-plugin-typescript-express   # compiles TS at deploy time (no tsc step)
+  - serverless-plugin-common-excludes
+  - serverless-dotenv-plugin               # loads env from JSON via jsonParser.js
+  - serverless-prune-plugin                # keep only the last N deployed versions
+
+provider:
+  name: aws
+  runtime: nodejs22.x                       # nodejs20.x also valid
+  stage: ${opt:stage, 'dev'}
+  region: ap-east-1                         # TODO: your AWS region
+  apiGateway:
+    binaryMediaTypes:
+      - "*/*"                               # serve images/files through Express uncorrupted
+
+# ONE Lambda behind a REST API Gateway. serverless-http (src/server.ts) routes
+# each request to Express. `http:` = REST API (vs `httpApi:` = HTTP API).
+# Add routes in src/app.ts — no serverless change needed.
+functions:
+  api:
+    handler: src/server.handler
+    events:
+      - http: ANY /
+      - http: ANY /{proxy+}
+
+custom:
+  dotenv:
+    path:
+      - .env.local.json                     # base env (local + shared keys)
+    dotenvParser: "./jsonParser.js"         # JSON -> env vars
+    logging: false
+  prune:
+    automatic: true
+    number: 3                               # keep last 3 CloudFormation deploys
+    oldestFirst: true

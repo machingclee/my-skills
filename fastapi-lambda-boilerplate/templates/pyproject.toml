@@ -1,0 +1,12 @@
+[project]
+name = "my-fastapi-app"            # TODO: rename
+version = "0.1.0"
+description = "FastAPI on AWS Lambda via Serverless"
+readme = "README.md"
+requires-python = ">=3.12"         # keep aligned with serverless.yml runtime (python3.12)
+dependencies = [
+    "fastapi>=0.124.0",
+    "mangum>=0.19.0",
+    "python-dotenv>=1.2.0",
+    "uvicorn>=0.38.0",
+]
