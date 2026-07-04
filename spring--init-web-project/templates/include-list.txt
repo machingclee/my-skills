@@ -1,0 +1,42 @@
+# Files to copy from the reference project into the new skeleton.
+# Paths are relative to:  <referenceRoot>/src/main/java/<referencePackage as path>/
+# (the main class lives directly under the reference package root, listed last)
+#
+# After copying, globally rename the package  <referencePackage>  ->  <basePackage>
+# in every file (package decl + imports), and rename SystemApplication -> <App>Application.
+# Then apply the two JpaConfiguration string fixes described in SKILL.md.
+
+# --- AOP ---
+aop/formdata/annotation/AllowFormData.java
+aop/formdata/config/FormAwareRequestBodyConfiguration.java
+aop/formdata/resolver/FormAwareRequestBodyResolver.java
+aop/logging/LogRequest.java
+aop/logging/LogRequestAspect.java
+
+# --- configurations ---
+configurations/application/SchedulerConfiguration.java
+configurations/aws/AwsConfiguration.java
+configurations/aws/S3Properties.java
+configurations/dbconnection/datasource/DataSourceConfiguration.java
+configurations/dbconnection/datasource/DataSourceProperties.java
+configurations/dbconnection/datasource/RoutingDataSource.java
+configurations/dbconnection/datasource/LoadBalancedDataSource.java
+configurations/dbconnection/jpa/JpaConfiguration.java
+configurations/dbconnection/monitoring/ConnectionMonitor.java
+configurations/dbconnection/monitoring/MonitoredDataSource.java
+configurations/dbconnection/monitoring/MySqlConnection.java
+configurations/web/SecurityConfiguration.java
+configurations/web/WebMvcConfig.java
+configurations/web/LoginSuccessHandler.java
+
+# --- common cross-cutting ---
+dto/APIResponseDTO.java
+exception/GlobalExceptionHandler.java
+exception/EcapiException.java
+interceptor/LogInvocation.java
+interceptor/LoggingHandlerInterceptor.java
+jpa/QueryLogger.java
+springcontext/SpringContext.java
+
+# --- main class (rename file + class to <App>Application) ---
+../SystemApplication.java

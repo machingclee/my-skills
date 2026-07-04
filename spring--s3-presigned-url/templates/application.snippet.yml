@@ -1,0 +1,6 @@
+# Merge into application.yml. Override per environment via S3_BUCKET / S3_REGION env vars.
+app:
+  s3:
+    bucket: ${S3_BUCKET:app-storage-dev}
+    region: ${S3_REGION:ap-east-1}
+    presigned-url-expiry-minutes: 10
