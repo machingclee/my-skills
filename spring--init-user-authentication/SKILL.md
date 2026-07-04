@@ -25,7 +25,7 @@ a **minimal** `UserRole` and the requested enum / entity trimming.
 | Input | Meaning | Example / default |
 |---|---|---|
 | `targetDir` | where to create the module | `/…/java-modules/user.authentication` |
-| `basePackage` | project base package | `com.echarge` |
+| `basePackage` | project base package | `com.example` |
 | `referenceRoot` | parent of `user.authentication` | `/Users/chingcheonglee/Repos/hkev/java-modules` |
 
 `referenceRoot` defaults to `/Users/chingcheonglee/Repos/hkev/java-modules`. Confirm
@@ -70,22 +70,18 @@ exactly, **except** for the deletions and edits below.
 2. **Copy the whole module.** Recursively copy `<referenceRoot>/user.authentication/` →
    `<targetDir>/user.authentication/`.
 
-3. **Determine `{{basePackage}}`.** Ask the user for the project's base package (e.g.,
-   `com.echarge`, `com.acme`, `io.mycompany`). The base package is the root Java package
-   shared by all modules in the project — it's where repository, entity, and domain
-   classes live. Then **globally replace** every `{{basePackage}}` placeholder across all
-   files under `<targetDir>/user.authentication/`:
+3. **Determine `<basePackage>` and rename the directory tree.** Ask the user for the
+   project's base package (e.g., `com.example`, `com.acme`, `io.mycompany`). The base
+   package is the root Java package shared by all modules — it's where repository, entity,
+   and domain classes live. Then rename the package directory from the reference's concrete
+   name to `<basePackage>`:
    ```bash
-   find <targetDir>/user.authentication -type f \( -name '*.java' -o -name '*.xml' -o -name '*.yml' -o -name '*.imports' \) \
-     -exec sed -i '' 's|{{basePackage}}|<basePackage>|g' {} +
+   old_pkg_path=$(echo "com.example" | tr '.' '/')
+   new_pkg_path=$(echo "<basePackage>" | tr '.' '/')
+   mv "<targetDir>/user.authentication/src/main/java/${old_pkg_path}" \
+      "<targetDir>/user.authentication/src/main/java/${new_pkg_path}"
    ```
-   After replacement:
-   - Source files under `src/main/java/<basePackage>/user/authentication/…`
-   - `pom.xml` → `<groupId><basePackage></groupId>`, `{{basePackage}}:domainutil` dep
-   - `AutoConfiguration.java` → `setPackagesToScan` points at
-     `<basePackage>.user.authentication.common.jpa.entity` and
-     `<basePackage>.user.authentication.common.domain.model`
-   - All import statements → `<basePackage>.user.authentication.…`
+   This gives you `src/main/java/<basePackage>/user/authentication/…` on disk.
 
 4. **Delete these files** (do not carry them over). Unused enums and the
    `UserProfileContact` relationship are unnecessary — a typical project only needs the
@@ -117,18 +113,35 @@ exactly, **except** for the deletions and edits below.
    renamed paths:
    ```java
    em.setPackagesToScan(
-       "{{basePackage}}.user.authentication.common.jpa.entity",
-       "{{basePackage}}.user.authentication.common.domain.model"
+       "<basePackage>.user.authentication.common.jpa.entity",
+       "<basePackage>.user.authentication.common.domain.model"
    );
    ```
 
 8. **Replace `pom.xml`** with `templates/pom.xml` (new coordinates
-   `{{basePackage}}:user.authentication:1.0.0`). Deps are otherwise unchanged (optional
+   `<basePackage>:user.authentication:1.0.0`). Deps are otherwise unchanged (optional
    starters, JJWT api/impl/jackson at compile scope so consumers inherit them, AWS
    DynamoDB + enhanced, springdoc, spring-security-crypto, MySQL, Lombok, domainutil,
    test starter), Java 17, Lombok processor path, AWS BOM in `<dependencyManagement>`.
 
-9. **Build & install.** `mvn -f <targetDir>/user.authentication -q install` → produces
+9. **Replace all package references.** Now that all files are in place, globally replace
+   every `com.example` AND every `{{basePackage}}` placeholder with `<basePackage>`
+   across the entire module:
+   ```bash
+   find <targetDir>/user.authentication -type f \( -name '*.java' -o -name '*.xml' -o -name '*.yml' -o -name '*.imports' \) \
+     -exec sed -i '' -e 's|com\.example|<basePackage>|g' -e 's|{{basePackage}}|<basePackage>|g' {} +
+   ```
+   This is a single sweep at the end so it catches the reference module's `com.example`
+   (from the initial copy) AND any `{{basePackage}}` placeholders in template files
+   (copied in steps 6–8). After this sweep:
+   - Package declarations + imports → `<basePackage>.user.authentication.…`
+   - `pom.xml` → `<groupId><basePackage></groupId>`, `<basePackage>:domainutil` dep
+   - `AutoConfiguration.java` → `setPackagesToScan` points at
+     `<basePackage>.user.authentication.common.jpa.entity` and
+     `<basePackage>.user.authentication.common.domain.model`
+   - `grep -r 'com\.example\|{{basePackage}}' <targetDir>` returns nothing.
+
+10. **Build & install.** `mvn -f <targetDir>/user.authentication -q install` → produces
    `user.authentication-1.0.0.jar` for the consumer web project to depend on.
 
 ## Notes
@@ -166,4 +179,4 @@ exactly, **except** for the deletions and edits below.
 Spring Boot 3.4.x parent, `spring-boot-starter` + `-web` + `-data-jpa` (all `optional`),
 MySQL Connector/J, JJWT 0.12.x (`jjwt-api` + `jjwt-impl` + `jjwt-jackson`), AWS SDK
 DynamoDB + DynamoDB Enhanced (via the AWS BOM), springdoc, spring-security-crypto,
-Lombok, and `{{basePackage}}:domainutil`. Jakarta namespace throughout.
+Lombok, and `<basePackage>:domainutil`. Jakarta namespace throughout.

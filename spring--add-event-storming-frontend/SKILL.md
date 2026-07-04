@@ -2,7 +2,7 @@
 name: spring--add-event-storming-frontend
 description: >-
   Build the command-flow / event-storming visualizer frontend (the
-  echarge-event-storming-component React+Vite+TS app) and install its built dist/
+  event-storming-component React+Vite+TS app) and install its built dist/
   into a chosen Java module's src/main/resources/META-INF/resources/ so Spring Boot
   serves it. ASKS the user which target module to install into and which frontend
   source repo to build from at run time — nothing is hardcoded. Use when adding the
@@ -15,7 +15,7 @@ description: >-
 # Add the event-storming frontend to a Java module
 
 Installs the **command-flow visualizer** — the React + Vite + TS app in the
-`echarge-event-storming-component` repo — into a Java module's static resources so
+`event-storming-component` repo — into a Java module's static resources so
 Spring Boot serves the command→event→policy diagram. The frontend fetches a flow JSON
 from a backend endpoint and renders it with @xyflow/react.
 
@@ -44,9 +44,9 @@ default when the user has already stated it or it is obvious from context.
    - Confirm the absolute path of its `src/main/resources/META-INF/resources/` before
      writing. If the cwd is not a module root, ask which module.
 
-2. **Frontend source repo** — path to the `echarge-event-storming-component` repo.
-   - Try to locate a sibling `echarge-event-storming-component` (e.g.
-     `../../echarge-event-storming-component` relative to the target module) and confirm
+2. **Frontend source repo** — path to the `event-storming-component` repo.
+   - Try to locate a sibling `event-storming-component` (e.g.
+     `../../event-storming-component` relative to the target module) and confirm
      it has `package.json` + `vite.config.ts`.
    - If not found, or if more than one candidate exists, **ask the user** for the path.
 

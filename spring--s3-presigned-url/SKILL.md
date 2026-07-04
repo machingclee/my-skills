@@ -19,7 +19,7 @@ short-lived presigned `PUT` URL; the client uploads the bytes straight to S3, th
 stores the permanent `fileUrl` against whatever domain record owns the file.
 
 Extracted from `web.sales`'s `AwsS3Service` / `FileUploadController` so it is reusable
-across any echarge service — including the skeleton produced by
+across any Spring Boot service — including the skeleton produced by
 `spring--init-web-project`.
 
 ## Mandatory Trigger
@@ -57,7 +57,7 @@ pom.xml                              ← merge templates/pom.snippet.xml
 ## How to use
 
 1. **Rename the placeholder.** In every template, replace `com.example` with the
-   project's base package (e.g. `com.echarge.fleet`). Keep the sub-package layout.
+   project's base package (e.g. `com.example.fleet`). Keep the sub-package layout.
 
 2. **Skip what already exists.** If `S3Properties.java` and/or `AwsConfiguration.java`
    already exist (the `spring--init-web-project` skeleton ships both), do not overwrite

@@ -22,9 +22,6 @@ configurations/dbconnection/datasource/DataSourceProperties.java
 configurations/dbconnection/datasource/RoutingDataSource.java
 configurations/dbconnection/datasource/LoadBalancedDataSource.java
 configurations/dbconnection/jpa/JpaConfiguration.java
-configurations/dbconnection/monitoring/ConnectionMonitor.java
-configurations/dbconnection/monitoring/MonitoredDataSource.java
-configurations/dbconnection/monitoring/MySqlConnection.java
 configurations/web/SecurityConfiguration.java
 configurations/web/WebMvcConfig.java
 configurations/web/LoginSuccessHandler.java

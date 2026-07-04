@@ -9,8 +9,8 @@ endpoint and renders it as an interactive diagram (@xyflow/react).
 
 ## Source
 
-- **Repo:** `echarge-event-storming-component` (separate git repo; typically a sibling of
-  this module, e.g. `../../echarge-event-storming-component`).
+- **Repo:** `event-storming-component` (separate git repo; typically a sibling of
+  this module, e.g. `../../event-storming-component`).
 - **App name:** `command-flow-visualizer` (see its `package.json`).
 - **Stack:** React 18, Vite 7, TypeScript, Tailwind, @xyflow/react, react-markdown.
 - **Build:** `npm run build` → `tsc -b && vite build` → emits `dist/`.

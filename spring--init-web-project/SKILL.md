@@ -60,7 +60,7 @@ exists before copying.
     common/aop/logging/{LogRequest,LogRequestAspect}.java
     common/configurations/application/SchedulerConfiguration.java
     common/configurations/aws/{AwsConfiguration,S3Properties}.java
-    common/configurations/dbconnection/{datasource,jpa,monitoring}/…
+    common/configurations/dbconnection/{datasource,jpa}/…
     common/configurations/web/{SecurityConfiguration,WebMvcConfig,LoginSuccessHandler}.java
     common/dto/APIResponseDTO.java
     common/exception/{GlobalExceptionHandler,EcapiException}.java

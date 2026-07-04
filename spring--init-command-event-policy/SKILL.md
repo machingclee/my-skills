@@ -7,7 +7,7 @@ description: >-
   worked example of the full flow — Controller → Command → CommandHandler → domain
   Event → Policy — for one aggregate. The Event entity is generated even before its
   backing table exists (the app still boots with ddl-auto=none; include the DDL to
-  create the table later). Use when bootstrapping a new echarge microservice that
+  create the table later). Use when bootstrapping a new microservice that
   follows the web.sales convention, initialising a command/event/policy context,
   or wiring domain.util into a fresh module.
 ---
@@ -19,7 +19,7 @@ project, mirroring the convention proven in `web.sales`. It produces the six
 per-schema "glue" beans domain.util needs to run, **plus** one complete worked
 example of the flow for a sample aggregate so the project is runnable end-to-end.
 
-domain.util (`com.echarge:domainutil`) provides the framework:
+domain.util provides the framework (`com.example:domainutil` or equivalent):
 `Command`, `CommandHandler`, `CommandInvoker`, `EventQueue`, `Policy`,
 `@TargetSchema`, `@Invariant`, and the `AuditEvent` interface. Each consumer
 project supplies the schema-specific wiring — that wiring is what this scaffold
@@ -57,7 +57,7 @@ Substitute these consistently across every template:
 
 | Placeholder | Meaning | Example |
 |---|---|---|
-| `{{basePackage}}` | project base package | `com.echarge.sales` |
+| `{{basePackage}}` | project base package | `com.example.sales` |
 | `{{context}}` | bounded context / DB catalog (lowercase) | `sales` |
 | `{{Context}}` | same, PascalCase | `Sales` |
 | `{{SCHEMA}}` | schema enum constant (uppercase) | `SALES` |
@@ -173,7 +173,7 @@ runnable reference for one aggregate; duplicate and rename them per real aggrega
 
 ## Dependencies
 
-Requires `com.echarge:domainutil` on the classpath (auto-configures itself via
+Requires `com.example:domainutil` (or your project's equivalent) on the classpath (auto-configures itself via
 `META-INF/spring/...AutoConfiguration.imports`), plus `spring-boot-starter-web`,
 `spring-boot-starter-data-jpa`, a JDBC driver, and Lombok. Spring Boot 3.x+/Jakarta
 namespace is assumed (matches domain.util's `jakarta.persistence` imports).
