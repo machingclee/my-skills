@@ -1,0 +1,36 @@
+<!-- maven-compiler-plugin configuration — merge into <build><plugins> in pom.xml.
+     REQUIRED to activate domain.util's @TargetSchema compile-time enforcer.
+
+     Why: once <annotationProcessorPaths> is non-empty, maven-compiler-plugin resolves
+     annotation processors ONLY from these paths and ignores the compile classpath. So
+     the TargetSchemaEnforcementProcessor shipped in the domainutil jar (auto-registered
+     via its own META-INF/services) is picked up only if domainutil is listed here.
+
+     With this in place, a CommandHandler missing @TargetSchema fails the BUILD with a
+     clear message — instead of only failing at runtime dispatch in AbstractCommandInvoker.
+     Lombok and MapStruct are shown as typical siblings; keep whatever your project uses. -->
+<plugin>
+    <groupId>org.apache.maven.plugins</groupId>
+    <artifactId>maven-compiler-plugin</artifactId>
+    <version>3.11.0</version>
+    <configuration>
+        <annotationProcessorPaths>
+            <path>
+                <groupId>org.projectlombok</groupId>
+                <artifactId>lombok</artifactId>
+                <version>1.18.40</version>
+            </path>
+            <path>
+                <groupId>org.mapstruct</groupId>
+                <artifactId>mapstruct-processor</artifactId>
+                <version>1.5.5.Final</version>
+            </path>
+            <!-- Activates domain.util's @TargetSchema compile-time enforcer -->
+            <path>
+                <groupId>com.echarge</groupId>
+                <artifactId>domainutil</artifactId>
+                <version>0.0.1-SNAPSHOT</version>
+            </path>
+        </annotationProcessorPaths>
+    </configuration>
+</plugin>

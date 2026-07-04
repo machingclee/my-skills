@@ -1,0 +1,28 @@
+<!-- Add to <dependencies> in pom.xml.
+     domain.util is published as com.echarge:domainutil (Spring Boot auto-configuration
+     is registered via META-INF/spring/...AutoConfiguration.imports, so it activates
+     automatically once on the classpath). -->
+<dependency>
+    <groupId>com.echarge</groupId>
+    <artifactId>domainutil</artifactId>
+    <version>0.0.1-SNAPSHOT</version>
+</dependency>
+
+<!-- Already pulled transitively by domain.util, but ensure these are present: -->
+<dependency>
+    <groupId>org.springframework.boot</groupId>
+    <artifactId>spring-boot-starter-web</artifactId>
+</dependency>
+<dependency>
+    <groupId>org.springframework.boot</groupId>
+    <artifactId>spring-boot-starter-data-jpa</artifactId>
+</dependency>
+<dependency>
+    <groupId>org.projectlombok</groupId>
+    <artifactId>lombok</artifactId>
+</dependency>
+
+<!-- ALSO merge templates/compiler-processor-paths.snippet.xml into <build><plugins>.
+     It adds domainutil to maven-compiler-plugin's <annotationProcessorPaths> so the
+     @TargetSchema compile-time enforcer runs — without it, a handler missing
+     @TargetSchema only fails at runtime dispatch, not at build time. -->

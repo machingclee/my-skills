@@ -1,0 +1,13 @@
+# Merge into src/main/resources/application.yml
+#
+# ddl-auto: none is REQUIRED for the "table not in place yet" boot — Hibernate must
+# not validate the schema at startup, or the missing `event` table fails the app
+# before it serves traffic. Switch to validate/update only after event-table.sql runs.
+spring:
+  jpa:
+    hibernate:
+      ddl-auto: none
+    properties:
+      # Optional: default the catalog so entities can omit `catalog = "..."`.
+      # With explicit catalog on {{Context}}Event/@Table this is not required.
+      hibernate.default_catalog: "{{context}}"
