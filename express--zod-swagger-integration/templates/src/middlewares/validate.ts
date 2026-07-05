@@ -7,7 +7,7 @@ import { ZodSchema } from "zod";
  * with structured issues. On success, replaces req.body with the parsed
  * (and potentially transformed) data so downstream handlers are fully typed.
  *
- * Used directly by createDocApp() when a route sets `requestBodySchema`,
+ * Used directly by createDocApp() when a route sets `bodySchema`,
  * but is also exported so it can be applied manually to a plain Express app
  * (see the /express--create-zod-middleware skill).
  */

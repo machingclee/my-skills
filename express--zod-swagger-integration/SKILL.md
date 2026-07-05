@@ -4,7 +4,7 @@ description: >-
   Integrate Zod validation and auto-generated Swagger docs into an existing
   Express TypeScript app. Replaces `const app = express()` with a
   `createDocApp()` that accepts FastAPI-style endpoint configs
-  (`app.post("/path", { requestBodySchema, responseSchema, summary }, handler)`).
+  (`app.post("/path", { bodySchema, responseSchema, summary }, handler)`).
   Routes are auto-registered in an OpenAPI registry and served at `/api-docs`
   via swagger-ui-express. Request bodies are validated via a reusable
   `validate` middleware; response bodies are documented and optionally
@@ -34,7 +34,7 @@ response body, plus a summary. In return you get, with **no boilerplate**:
 
 ```
 app.get ("/path", { querySchema, responseSchema, summary }, handler)
-app.post("/path", { requestBodySchema, responseSchema, summary }, handler)
+app.post("/path", { bodySchema, responseSchema, summary }, handler)
         │
         ▼
    createDocApp() — patched Express app (get/post/put/delete/patch)
@@ -42,7 +42,7 @@ app.post("/path", { requestBodySchema, responseSchema, summary }, handler)
         ├── isConfig(arg)? ── no ──▶ plain Express passthrough
         │
         └── yes ── FastAPI-style registration:
-             ├── validate(requestBodySchema)   middleware (Zod safeParse on req.body → 400)
+             ├── validate(bodySchema)   middleware (Zod safeParse on req.body → 400)
              ├── res.json wrapper               (Zod safeParse on 2xx body → log + 500)
              ├── registry.push({ method, path, ...config })
              │        │
@@ -142,7 +142,7 @@ Every config key, what it does at runtime vs. compile time vs. in the docs:
 
 | Key | Type | Runtime effect | Compile-time effect | OpenAPI effect |
 |-----|------|----------------|---------------------|----------------|
-| `requestBodySchema` | `ZodSchema` | `validate()` middleware parses `req.body`, `400` on failure | Narrows `req.body` to `z.infer<…>` | `requestBody` (required, `application/json`) |
+| `bodySchema` | `ZodSchema` | `validate()` middleware parses `req.body`, `400` on failure | Narrows `req.body` to `z.infer<…>` | `requestBody` (required, `application/json`) |
 | `querySchema` | `ZodObject` | *(none — validate only runs on body)* | *(none)* | One `in: query` parameter per field, `required` unless `.optional()` |
 | `responseSchema` | `ZodSchema` | `res.json()` payload is `safeParse`'d; mismatch → log + `500` | Narrows `res.json()` arg to `z.infer<…>` | `200` response with that schema |
 | `responses` | `Record<code, { description, schema? }>` | *(none)* | *(none)* | Merged **on top of** `responseSchema`'s `200` — use for error codes (`4xx`/`5xx`) |
@@ -195,7 +195,7 @@ app.get("/api/items", {
 
 ```typescript
 app.post("/api/items", {
-  requestBodySchema: z.object({
+  bodySchema: z.object({
     name: z.string().min(1, "name is required"),
     price: z.number().positive(),
   }),
@@ -256,7 +256,7 @@ to this:
 ```typescript
 // validate import no longer needed on this route — createDocApp applies it
 app.post("/items", {
-  requestBodySchema: CreateItemSchema,
+  bodySchema: CreateItemSchema,
   responseSchema: CreateItemResponseSchema,
   summary: "Create an item",
 }, async (req, res) => {
@@ -266,7 +266,7 @@ app.post("/items", {
 ```
 
 Checklist per route:
-1. Move the body schema into `requestBodySchema`.
+1. Move the body schema into `bodySchema`.
 2. Add a `responseSchema` (build one with `successResponse(…)` if you use the envelope).
 3. Add a one-line `summary` (and `tags` if you group endpoints).
 4. **Delete** the `req: Request, res: Response` annotations — see gotcha 4.
@@ -300,60 +300,54 @@ them. Always let TypeScript infer.
 
 ## Gotchas (non-obvious — read before debugging)
 
-1. **The config key is `requestBodySchema`, not `bodySchema`.** Older comments
-   in some copies of `routeRegistry.ts` say `bodySchema`; that is a typo. The
-   `CONFIG_KEYS` detector and the `EndpointConfig` type only recognize
-   `requestBodySchema` — using `bodySchema` silently skips validation AND
-   typing on that route.
-
-2. **Express's internal `app.get(setting)` is intercepted by the patch.** The
+1. **Express's internal `app.get(setting)` is intercepted by the patch.** The
    patched methods must handle `arguments.length === 1` or
    `configOrHandler === undefined` by passing through to the original method
    *without forwarding `undefined` args* — Express uses arg-count to
    distinguish route registration from settings getters (`app.get("env")`).
    Don't "simplify" the passthrough branches.
 
-3. **Zod v4 uses `_def.type` (short names like `"string"`, `"object"`), not
+2. **Zod v4 uses `_def.type` (short names like `"string"`, `"object"`), not
    `_def.typeName` (`"ZodString"`, `"ZodObject"`).** `zodToOpenApiSchema` and
    `zodType()` check both, so the converter works under v3 and v4. If you
    upgrade Zod and the docs go empty, this is the first thing to check.
 
-4. **`_def.shape` is a plain object in v4, not a function.** `getShape()` and
+3. **`_def.shape` is a plain object in v4, not a function.** `getShape()` and
    the query-schema code check `typeof shape === "function"` before calling.
    Don't assume one form.
 
-5. **Don't annotate handler parameters.** Writing `(req: Request, res: Response)`
+4. **Don't annotate handler parameters.** Writing `(req: Request, res: Response)`
    overrides the contextual types from the overloads — you lose `req.body` /
    `res.json()` narrowing and the whole point of the config. Let TypeScript
-   infer. If the inferred types look wrong, you almost certainly mismatched
-   the config (e.g. `bodySchema` instead of `requestBodySchema` — see gotcha 1).
+   infer. If the inferred `req.body` type looks wrong, make sure the schema
+   passed to `bodySchema` is the one you expect.
 
-6. **`setupSwagger` must be called after all routes, before the error handler.**
+5. **`setupSwagger` must be called after all routes, before the error handler.**
    Routes registered after `setupSwagger()` won't appear in the docs
    (the doc is built eagerly at setup time). The error handler must stay last
    so thrown errors still produce JSON, not an HTML page.
 
-7. **Response validation is `2xx`-only and logs on mismatch.** The `res.json`
+6. **Response validation is `2xx`-only and logs on mismatch.** The `res.json`
    wrapper checks `status >= 200 && status < 300`. On failure it `console.error`s
    the Zod issues and returns `500 { error: "Internal server error" }`. Errors
    responses (`4xx`/`5xx`) are passed through unvalidated — so document them in
    `responses` but don't expect the wrapper to enforce them.
 
-8. **If `express` is imported as a value (for `express.json()`, `express.raw()`),
+7. **If `express` is imported as a value (for `express.json()`, `express.raw()`),
    keep that import.** Only the *app creation* call changes from `express()` to
    `createDocApp()`. `express.json()` is still required to parse bodies before
    `validate` can see them.
 
-9. **Binary/raw routes (e.g. AgentCore `/invocations` with `express.raw()`)
-   can't use `requestBodySchema`.** Body validation assumes the body is already
+8. **Binary/raw routes (e.g. AgentCore `/invocations` with `express.raw()`)
+   can't use `bodySchema`.** Body validation assumes the body is already
    parsed as JSON. For binary endpoints, keep `express.raw()` as inline
-   middleware and omit `requestBodySchema` (document the route with just
+   middleware and omit `bodySchema` (document the route with just
    `responseSchema` / `summary`).
 
-10. **`querySchema` documents but does not validate.** Query params are read
-    raw from `req.query`. If you need enforced query validation, run an
-    explicit `validate(querySchema)`-style check inside the handler (the
-    bundled `validate` targets `req.body`).
+9. **`querySchema` documents but does not validate.** Query params are read
+   raw from `req.query`. If you need enforced query validation, run an
+   explicit `validate(querySchema)`-style check inside the handler (the
+   bundled `validate` targets `req.body`).
 
 ## Related skill
 

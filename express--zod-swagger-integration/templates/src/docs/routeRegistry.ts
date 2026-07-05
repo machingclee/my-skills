@@ -17,7 +17,7 @@ interface RouteDefinition<
   path: string;
   summary?: string;
   tags?: string[];
-  requestBodySchema?: TBody;
+  bodySchema?: TBody;
   querySchema?: ZodSchema;
   /** Success response schema — infers res.json() type + auto-generates OpenAPI. */
   responseSchema?: TResp;
@@ -27,7 +27,7 @@ interface RouteDefinition<
 
 /**
  * Config object passed as the second argument to app.get/post/put/delete/patch.
- * TBody: inferred from requestBodySchema (or undefined).
+ * TBody: inferred from bodySchema (or undefined).
  * TResp: inferred from responseSchema (or undefined).
  */
 export type EndpointConfig<
@@ -128,7 +128,7 @@ export type DocApp = ReturnType<typeof express> & DocAppMethods;
 const registry: RouteDefinition[] = [];
 
 /** Checks whether the argument is an EndpointConfig (not a handler or internal Express arg). */
-const CONFIG_KEYS = ["requestBodySchema", "responseSchema", "querySchema", "summary", "tags", "responses"];
+const CONFIG_KEYS = ["bodySchema", "responseSchema", "querySchema", "summary", "tags", "responses"];
 function isConfig(obj: any): obj is EndpointConfig {
   if (!obj || typeof obj !== "object" || Array.isArray(obj) || typeof obj === "function") return false;
   return CONFIG_KEYS.some((k) => k in obj);
@@ -148,7 +148,7 @@ function isConfig(obj: any): obj is EndpointConfig {
  *   }, (_req, res) => { ... });
  *
  *   app.post("/invocations", {
- *     requestBodySchema: InvocationSchema,  // validates + types req.body
+ *     bodySchema: InvocationSchema,  // validates + types req.body
  *     responseSchema: InvocationResponseSchema,
  *     summary: "Invoke the Agent",
  *   }, async (req, res) => {
@@ -168,8 +168,8 @@ export function createDocApp(): DocApp {
         const config = configOrHandler as EndpointConfig;
         let handler: RequestHandler = maybeHandler;
         const middleware: RequestHandler[] = [];
-        if (config.requestBodySchema) {
-          middleware.push(validate(config.requestBodySchema));
+        if (config.bodySchema) {
+          middleware.push(validate(config.bodySchema));
         }
         // Wrap handler to validate the response body against responseSchema
         if (config.responseSchema) {
@@ -218,17 +218,17 @@ export function createDocApp(): DocApp {
 
 export function registerRoute<TBody extends ZodSchema>(
   app: DocApp,
-  def: Omit<RouteDefinition<TBody>, "requestBodySchema"> & { requestBodySchema: TBody },
+  def: Omit<RouteDefinition<TBody>, "bodySchema"> & { bodySchema: TBody },
   handler: TypedHandler<TBody, undefined>,
 ): void;
 export function registerRoute(
   app: DocApp,
-  def: Omit<RouteDefinition, "requestBodySchema"> & { requestBodySchema?: undefined },
+  def: Omit<RouteDefinition, "bodySchema"> & { bodySchema?: undefined },
   handler: TypedHandler<undefined, undefined>,
 ): void;
 export function registerRoute<TBody extends ZodSchema | undefined = undefined>(
   app: DocApp,
-  def: Omit<RouteDefinition<TBody>, "requestBodySchema"> & { requestBodySchema?: TBody },
+  def: Omit<RouteDefinition<TBody>, "bodySchema"> & { bodySchema?: TBody },
   handler: TypedHandler<TBody, undefined>,
 ): void {
   (app as any)[def.method](def.path, def, handler);
@@ -319,11 +319,11 @@ export function generateOpenApiDoc(title: string, version: string): Record<strin
       responses: def.responses || { "200": { description: "OK" } },
     };
 
-    if (def.requestBodySchema) {
+    if (def.bodySchema) {
       (operation as any).requestBody = {
         required: true,
         content: {
-          "application/json": { schema: zodToOpenApiSchema(def.requestBodySchema) },
+          "application/json": { schema: zodToOpenApiSchema(def.bodySchema) },
         },
       };
     }
