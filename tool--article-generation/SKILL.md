@@ -51,6 +51,19 @@ If any of these conditions are met, call `Skill("article-generation-style")` bef
   ---
   ```
 
+- Immediately after the frontmatter block, every article must include the following `<style>` block:
+
+  ```html
+  <style>
+    img {
+      max-width: 660px !important;
+    }
+    table td:first-child, table th:first-child {
+      min-width: 160px;
+    }
+  </style>
+  ```
+
 - Every section heading (`###`, `####`, etc.) must carry an anchor:
 
   ```
