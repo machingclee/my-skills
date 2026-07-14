@@ -22,7 +22,7 @@ This skill must be invoked via the Skill tool whenever the user's request matche
 If any of these conditions are met, call `Skill("article-generation-style")` before writing any content. The skill contains formatting rules, file location conventions, and frontmatter requirements that must be applied.
 
 ## Rules for Generating or Rewriting
-
+- Titles should not start from present continuous tense, "Debugging ..." should be "Debug ...".
 - Do not check nearby articles for style reference; apply the rules below directly.
 - Use "we" and "our" instead of "you" and "your".
 - Avoid bold text `** **`; use only when truly necessary.
@@ -30,7 +30,7 @@ If any of these conditions are met, call `Skill("article-generation-style")` bef
 - Every section heading must be at least level-3 (`###`). Sub-sections use `####`.
 - Do not use emoji anywhere.
 - Do not use `---` (horizontal rule) as a section separator.
-- Do not use a lone `-` as a sentence-level conjunction within paragraphs. Use commas or restructure the sentence instead.
+- Do not use a `—` as a sentence-level conjunction within paragraphs. Use commas or restructure the sentence instead.
 - Never line-break long sentences or paragraphs. Keep each paragraph in a single line. The user will wrap text in their editor.
 - Group closely related topics under a parent section (`###`) with child subsections (`####`). Avoid long flat lists of same-level headings.
 - When an article centers on a complete code listing or script, show the full, runnable listing in its own section first, then break it into component subsections that explain each part and reference the listing. The complete code precedes the explanation, not the other way around.

@@ -1,145 +1,244 @@
 ---
 name: aws--agentcore-boilerplate
 description: >-
-  Scaffold an AWS Bedrock AgentCore Python project with Strands Agents, AG-UI
-  protocol, and a custom model (DeepSeek). Generates the full AgentCore project
-  structure (agentcore/ config, CDK infra, a FastAPI AG-UI entrypoint with
-  /invocations and /ping endpoints, and a multi-agent template with the
-  agents-as-tools pattern). Use when the user wants to create a new AgentCore
-  project, scaffold a Strands agent for Bedrock AgentCore Runtime with AG-UI,
-  set up an AgentCore boilerplate, or start a new agent project targeting AWS
-  with a non-Claude model.
+  Create an AgentCore project boilerplate with CUSTOM_JWT authorizer, all 4 memory
+  strategy types (SEMANTIC, SUMMARIZATION, USER_PREFERENCE, EPISODIC), AGUI protocol,
+  CodeZip build, and S3SessionManager by default with an optional
+  AgentCoreMemorySessionManager + S3 archive hook template. Use when the user wants
+  to scaffold a new AgentCore agent project, create an agentcore boilerplate, or
+  start a new Bedrock AgentCore project with production-ready defaults.
 ---
 
-# AgentCore Strands Agent Boilerplate (AG-UI Protocol)
+# AgentCore Boilerplate — Production-Ready AgentCore Project Scaffold
 
-Scaffolds a complete AgentCore project: agent code, runtime configuration, CDK
-infrastructure, and target region setup. The starter code uses DeepSeek v3.2 and
-includes a working agents-as-tools example. The entrypoint uses the **AG-UI
-protocol** via FastAPI + `StrandsAgent` wrapper, which streams typed events
-(`RUN_STARTED`, `TEXT_MESSAGE_CONTENT`, `TOOL_CALL_START`, etc.) as SSE for any
-AG-UI-compatible frontend to consume.
+Creates a new AgentCore project via `agentcore create` and then customizes the
+generated files with production-ready defaults: JWT authorizer, all 4 memory
+strategy types, S3 session storage, and an optional AgentCore Memory + S3 archive
+hook path.
 
-## Project Structure
+## When to Use
+
+- The user asks to scaffold, create, or bootstrap a new AgentCore project
+- The user wants a "boilerplate" or "starter" for Bedrock AgentCore
+- The user mentions `agentcore create` but wants opinionated defaults beyond
+  what the CLI provides
+- The user says "create an agentcore project like this one" or "use this as a prototype"
+
+## Architecture of the Generated Project
 
 ```
 <project-name>/
-  agentcore/
-    agentcore.json              # Runtime config (protocol: AGUI, entrypoint, build)
-    aws-targets.json            # AWS account + region
-    cdk/                        # CDK TypeScript infra (auto-managed by CLI)
-  app/<agent-name>/
-    main.py                     # FastAPI AG-UI server (/invocations + /ping)
-    pyproject.toml              # Python deps (ag-ui-strands, fastapi, strands-agents)
-    src/agents/
-      main_agent.py             # Orchestrator agent (DeepSeek)
-      sub_agent.py              # Example sub-agent
-      collaborator.py           # Example @tool
+├── agentcore/
+│   ├── agentcore.json          # Customized with all 4 memory types + JWT authorizer
+│   └── .cli/
+├── app/<AgentName>/
+│   ├── main.py                 # S3SessionManager (default) or AgentCoreMemorySessionManager
+│   ├── pyproject.toml
+│   ├── .gitignore
+│   ├── README.md
+│   └── src/
+│       └── agents/
+│           └── main_agent.py
 ```
 
-## Scaffold Steps
+**Two session-manager paths** (choose by commenting/uncommenting in `main.py`):
 
-Ask the user for:
-1. `projectName` — top-level directory name (default: `MyAgent`)
-2. `agentName` — app subdirectory name (default: `AgentApp`)
-3. `region` — AWS region (default: `us-east-1`)
-4. `account` — AWS account ID (required)
-5. `modelId` — Bedrock model ID (default: `deepseek.v3.2`)
+| Path | Session Manager | Description |
+|------|----------------|-------------|
+| **Default** | `S3SessionManager` | Strands' built-in S3 session storage. Simple, no long-term memory (LTM). |
+| **Advanced** | `AgentCoreMemorySessionManager` + `S3ArchiveHook` | Full LTM strategies (semantic, summaries, preferences, episodic) **plus** an S3 archive hook that writes every raw message to S3 for audit / cold storage. |
 
-Then:
+The boilerplate ships with the **Advanced** path commented out — switch by
+uncommenting the AgentCore Memory blocks and removing the S3SessionManager block.
 
-1. Create the directory structure.
-2. Copy each template from `templates/` to the target path, replacing
-   `{{PROJECT_NAME}}`, `{{AGENT_NAME}}`, `{{REGION}}`, `{{ACCOUNT}}`, and
-   `{{MODEL_ID}}` with the user's values.
-3. Create `agentcore/agentcore.json` with `"protocol": "AGUI"` and
-   `"runtimeVersion": "PYTHON_3_14"`. The `agentcore create` CLI does this
-   automatically if available; otherwise write it directly from the spec below.
-4. Print the next steps: install deps, dev, deploy.
+## Workflow
 
-If the user does not provide values, ask before writing.
+### Step 1: Get the project name
 
-## agentcore.json Spec
+If the user hasn't provided a project name, ask:
 
-When writing `agentcore.json` directly (without the CLI), use this shape:
+> *"What should the project be called? (alphanumeric, max 23 chars, start with a letter)"*
+
+The project name is used for:
+- `--project-name` / `--name` passed to `agentcore create`
+- Deriving the S3 bucket name (lowercased, with `-agentcore-sessions` suffix)
+- The `agentcore.json` `name` field
+- The `agentcore:project-name` tag
+
+Derive the S3 bucket name as: `<project_name_lowercase>-agentcore-sessions`
+
+### Step 2: Ask for optional customizations
+
+Ask the user these questions (all have sensible defaults, so they can just
+press Enter / say "defaults" to accept):
+
+1. **AWS Region** (default: `us-east-1`)
+2. **Cognito User Pool ID** for the JWT authorizer (default: skip — leave the
+   placeholder for the user to fill in later). If they provide one, also ask for
+   the **Cognito Client ID** and the pool's **region**.
+3. **Agent framework** (default: `Strands`, but also offer `LangChain_LangGraph`,
+   `OpenAIAgents`, `GoogleADK`, `VercelAI`)
+4. **Model provider** (default: `Bedrock`, also offer `Anthropic`, `OpenAI`, `Gemini`)
+
+### Step 3: Run `agentcore create`
+
+Run the CLI with all the collected flags. The minimal invocation is:
+
+```bash
+agentcore create \
+  --name <ProjectName> \
+  --project-name <project-name> \
+  --protocol AGUI \
+  --build CodeZip \
+  --memory longAndShortTerm \
+  --framework Strands \
+  --language Python \
+  --region <region>
+```
+
+Add `--model-provider <provider>` and `--api-key <key>` if not Bedrock.
+
+**Important:** `agentcore create` is interactive by default. Use the
+`--defaults` flag to accept defaults for any prompts we haven't covered,
+and provide all known answers via flags to minimize prompts.
+
+If the user wants a fully non-interactive run, add `--defaults --skip-git`.
+
+### Step 4: Customize `agentcore.json`
+
+After creation, read the generated `agentcore/agentcore.json` and apply these
+changes:
+
+#### 4a. Add / update authorizer
+
+In the `runtimes[0]` object, ensure these fields exist:
 
 ```json
-{
-  "$schema": "https://schema.agentcore.aws.dev/v1/agentcore.json",
-  "name": "{{PROJECT_NAME}}",
-  "version": 1,
-  "managedBy": "CDK",
-  "runtimes": [
-    {
-      "name": "{{AGENT_NAME}}",
-      "build": "CodeZip",
-      "entrypoint": "main.py",
-      "codeLocation": "app/{{AGENT_NAME}}/",
-      "runtimeVersion": "PYTHON_3_14",
-      "networkMode": "PUBLIC",
-      "protocol": "AGUI"
-    }
-  ],
-  "memories": [],
-  "knowledgeBases": [],
-  "credentials": [],
-  "evaluators": [],
-  "onlineEvalConfigs": [],
-  "agentCoreGateways": [],
-  "policyEngines": [],
-  "configBundles": [],
-  "abTests": [],
-  "harnesses": [],
-  "datasets": [],
-  "payments": []
+"authorizerType": "CUSTOM_JWT",
+"authorizerConfiguration": {
+  "customJwtAuthorizer": {
+    "discoveryUrl": "https://cognito-idp.<region>.amazonaws.com/<user-pool-id>/.well-known/openid-configuration",
+    "allowedAudience": [],
+    "allowedClients": ["<cognito-client-id>"]
+  }
 }
 ```
 
-## Template Files
+If the user skipped Cognito config, use placeholder values:
+- `<region>` → `us-east-1`
+- `<user-pool-id>` → `REPLACE_ME_USER_POOL_ID`
+- `<cognito-client-id>` → `REPLACE_ME_CLIENT_ID`
 
+#### 4b. Replace memories with all 4 strategy types
+
+Replace the entire `memories` array. The generated project typically has a
+single memory with 2 strategies. Replace it with one memory containing all
+4 built-in strategies:
+
+```json
+"memories": [
+  {
+    "name": "<ProjectName>Memory",
+    "eventExpiryDuration": 90,
+    "strategies": [
+      {
+        "type": "SEMANTIC",
+        "name": "user_facts",
+        "namespaceTemplates": [
+          "/strategies/{memoryStrategyId}/actors/{actorId}/"
+        ]
+      },
+      {
+        "type": "SUMMARIZATION",
+        "name": "conversation_summaries",
+        "namespaceTemplates": [
+          "/strategies/{memoryStrategyId}/actors/{actorId}/sessions/{sessionId}/"
+        ]
+      },
+      {
+        "type": "USER_PREFERENCE",
+        "name": "user_preferences",
+        "namespaceTemplates": [
+          "/strategies/{memoryStrategyId}/actors/{actorId}/"
+        ]
+      },
+      {
+        "type": "EPISODIC",
+        "name": "episodic_memory",
+        "namespaceTemplates": [
+          "/strategies/{memoryStrategyId}/actors/{actorId}/sessions/{sessionId}/"
+        ]
+      }
+    ]
+  }
+]
 ```
-templates/
-  main.py                  → app/<agent-name>/main.py
-  pyproject.toml           → app/<agent-name>/pyproject.toml
-  src/agents/main_agent.py → app/<agent-name>/src/agents/main_agent.py
-  src/agents/sub_agent.py  → app/<agent-name>/src/agents/sub_agent.py
-  src/agents/collaborator.py → app/<agent-name>/src/agents/collaborator.py
-  aws-targets.json         → agentcore/aws-targets.json
-```
 
-## Post-Scaffold Commands (tell the user)
+Also update `tags.agentcore:project-name` to match the chosen project name.
 
-```bash
-cd <project-name>
+### Step 5: Customize `main.py`
 
-# Install Python dependencies
-cd app/<agent-name> && uv sync && cd ../..
+Read the template from `templates/main.py` (located alongside this SKILL.md)
+and write it to `app/<AgentName>/main.py`. The template contains two paths:
 
-# Bootstrap CDK in the target region (once per region)
-npx cdk bootstrap aws://<account>/<region>
+- **Default path (active):** `S3SessionManager` — simple S3-backed session storage, no LTM.
+- **Advanced path (commented out):** `AgentCoreMemorySessionManager` + `S3ArchiveHook` —
+  full LTM with S3 cold storage of every raw message.
 
-# Test locally (starts FastAPI on port 8080)
-cd app/<agent-name> && uv run python main.py
+Substitute these placeholders when writing the file:
 
-# Deploy
-agentcore deploy
+| Placeholder | Replace with | Example |
+|---|---|---|
+| `{{PROJECT_NAME_LOWER}}` | Lowercased project name (hyphens ok) | `my-agent` |
+| `{{MEMORY_NAME_UPPER}}` | UPPERCASED project name, no hyphens | `MYAGENT` |
+| `{{AGENT_NAME}}` | Runtime name from `agentcore.json`, snake_case | `my_agent` |
+| `{{AGENT_DESCRIPTION}}` | One-line agent description | `"A helpful assistant that..."` |
 
-# Invoke
-agentcore invoke "Your prompt"
+### Step 6: Report what was created
 
-# Destroy
-agentcore remove all
-```
+After all changes are written, summarize:
 
-## Notes
+- Project location and name
+- S3 bucket name (remind them to create the bucket: `aws s3 mb s3://<bucket> --region <region>`)
+- The Cognito authorizer placeholder values they need to fill in
+- The two session-manager paths and how to switch between them
+- Next steps: `agentcore dev` for local development, `agentcore deploy` to ship
 
-- The `ag-ui-strands` package requires Python >=3.12, <3.14. The generated
-  `pyproject.toml` enforces this. If the user has a `.python-version` file
-  pinned to an older Python, remind them to run `uv python pin 3.12`.
-- The AG-UI protocol contracts expects two endpoints: `POST /invocations`
-  (streaming SSE) and `GET /ping` (health check). Both are in the generated
-  `main.py`. AgentCore handles auth, scaling, and session isolation.
-- To connect a frontend directly, the user can point any AG-UI client (CopilotKit,
-  `@ag-ui/client` `HttpAgent`, or a raw `EventSource`) at the AgentCore invoke
-  URL. For production browser access, configure inbound JWT auth on the runtime
-  and pass `Authorization: Bearer <token>` from the client.
+## Boilerplate Reference
+
+### The 4 AgentCore Memory Strategy Types
+
+| Type | `agentcore.json` key | Purpose | Default namespace |
+|------|---------------------|---------|-------------------|
+| `SEMANTIC` | `type: "SEMANTIC"` | Extracts factual knowledge about the user/domain | `/strategies/{memoryStrategyId}/actors/{actorId}/` |
+| `SUMMARIZATION` | `type: "SUMMARIZATION"` | Compresses conversations into running summaries | `/strategies/{memoryStrategyId}/actors/{actorId}/sessions/{sessionId}/` |
+| `USER_PREFERENCE` | `type: "USER_PREFERENCE"` | Captures user choices, styles, and interaction patterns | `/strategies/{memoryStrategyId}/actors/{actorId}/` |
+| `EPISODIC` | `type: "EPISODIC"` | Preserves event sequences and timelines | `/strategies/{memoryStrategyId}/actors/{actorId}/sessions/{sessionId}/` |
+
+### S3 Bucket Naming Convention
+
+The bucket name is derived as `<project_name_lowercase>-agentcore-sessions`.
+S3 bucket names must:
+- Be 3–63 characters
+- Contain only lowercase letters, numbers, periods, and hyphens
+- Start and end with a letter or number
+- Not contain two adjacent periods
+
+## Gotchas
+
+1. **`agentcore create` prompts.** Even with `--defaults`, the CLI may still
+   prompt for some options. Pass every known value as a flag to minimize
+   interactivity.
+2. **Bucket must exist.** The S3 bucket is not auto-created. Remind the user
+   to create it before deploying.
+3. **Python 3.12 vs 3.14 runtime.** The generated `pyproject.toml` may pin
+   `requires-python = ">=3.12, <3.14"`. The runtime version in `agentcore.json`
+   is `PYTHON_3_14` — these should agree. If `agentcore create` generates a
+   mismatched constraint, fix `pyproject.toml` to match the runtime.
+4. **Memory names must match.** The memory name in `agentcore.json`
+   (`<ProjectName>Memory`) must match the `MEMORY_<NAME>_ID` env var that
+   AgentCore injects at deploy time. The boilerplate uses `MEMORY_ID`
+   as a fallback, but the exact env var name is
+   `MEMORY_<UPPERCASED_MEMORY_NAME>_ID`.
+5. **The `main.py` name field in `StrandsAgent`** must be a valid
+   identifier (no spaces, hyphens, or special characters). Use snake_case.

@@ -1,8 +1,0 @@
-[
-  {
-    "name": "default",
-    "description": "Default target ({{REGION}})",
-    "account": "{{ACCOUNT}}",
-    "region": "{{REGION}}"
-  }
-]
