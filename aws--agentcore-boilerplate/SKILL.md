@@ -194,14 +194,57 @@ Substitute these placeholders when writing the file:
 | `{{AGENT_NAME}}` | Runtime name from `agentcore.json`, snake_case | `my_agent` |
 | `{{AGENT_DESCRIPTION}}` | One-line agent description | `"A helpful assistant that..."` |
 
-### Step 6: Report what was created
+### Step 6: Scaffold the test frontend
+
+Copy the entire `templates/frontend/` directory from this skill into a new
+`frontend/` folder at the project root (sibling to `agentcore/` and `app/`).
+
+```
+cp -r <skill-dir>/templates/frontend <project-dir>/frontend
+```
+
+Then substitute the following placeholders across the copied files
+(`index.html`, `src/App.tsx`, `src/components/ChatInterface.tsx`,
+`src/components/CopilotChatInterface.tsx`):
+
+| Placeholder | Replace with | Example |
+|---|---|---|
+| `{{PROJECT_NAME_LOWER}}` | Lowercased project name (hyphens ok) | `my-agent` |
+| `{{PAGE_TITLE}}` | Page title + header text | `🍽️ My Agent` |
+| `{{AGENT_NAME}}` | Runtime name from `agentcore.json`, snake_case | `my_agent` |
+| `{{WELCOME_MESSAGE}}` | First assistant message shown to the user | `"Hello! I'm your assistant..."` |
+| `{{CHAT_PLACEHOLDER}}` | Input placeholder text | `"Ask me anything..."` |
+
+After copying, tell the user to:
+
+```bash
+cd frontend
+cp .env.sample .env   # then fill in Cognito + agent endpoint values
+npm install
+npm run dev            # starts on http://localhost:5173
+```
+
+The frontend template includes:
+- **Custom ChatInterface** (`VITE_CHAT_MODE=custom`) — hand-built SSE streaming
+  chat with tool-call/reasoning activity indicators, state management, and DSML
+  sanitization. Default mode.
+- **CopilotKit ChatInterface** (`VITE_CHAT_MODE=copilotkit`) — CopilotKit-powered
+  AG-UI client that handles the full protocol natively. Set `VITE_CHAT_MODE=copilotkit`
+  in `.env` to switch.
+- **Cognito auto-login** — uses the bot credentials from `.env` to auto-authenticate
+  and attach a JWT to every agent request, matching the `CUSTOM_JWT` authorizer
+  configured in `agentcore.json`.
+
+### Step 7: Report what was created
 
 After all changes are written, summarize:
 
 - Project location and name
 - S3 bucket name (remind them to create the bucket: `aws s3 mb s3://<bucket> --region <region>`)
-- The Cognito authorizer placeholder values they need to fill in
+- The Cognito authorizer placeholder values they need to fill in (both in
+  `agentcore.json` and `frontend/.env`)
 - The two session-manager paths and how to switch between them
+- The two chat modes and how to switch between them
 - Next steps: `agentcore dev` for local development, `agentcore deploy` to ship
 
 ## Boilerplate Reference
