@@ -1,28 +1,16 @@
----
-name: aws--agentcore-boilerplate
-description: >-
-  Create an AgentCore project boilerplate with CUSTOM_JWT authorizer, all 4 memory
-  strategy types (SEMANTIC, SUMMARIZATION, USER_PREFERENCE, EPISODIC), AGUI protocol,
-  CodeZip build, and S3SessionManager by default with an optional
-  AgentCoreMemorySessionManager + S3 archive hook template. Use when the user wants
-  to scaffold a new AgentCore agent project, create an agentcore boilerplate, or
-  start a new Bedrock AgentCore project with production-ready defaults.
----
-
-# AgentCore Boilerplate — Production-Ready AgentCore Project Scaffold
+# AgentCore Boilerplate — Azure OpenAI + S3SessionManager
 
 Creates a new AgentCore project via `agentcore create` and then customizes the
-generated files with production-ready defaults: JWT authorizer, all 4 memory
-strategy types, S3 session storage, and an optional AgentCore Memory + S3 archive
-hook path.
+generated files with production-ready defaults: Azure OpenAI model, JWT
+authorizer, all 4 memory strategy types, and S3 session storage.
 
 ## When to Use
 
 - The user asks to scaffold, create, or bootstrap a new AgentCore project
-- The user wants a "boilerplate" or "starter" for Bedrock AgentCore
-- The user mentions `agentcore create` but wants opinionated defaults beyond
-  what the CLI provides
-- The user says "create an agentcore project like this one" or "use this as a prototype"
+  using **Azure OpenAI** (not Bedrock)
+- The user wants an AgentCore boilerplate with Azure OpenAI model provider
+- The user mentions `agentcore create` with Azure OpenAI or "Azure" model
+- The user says "create an agentcore project with Azure OpenAI"
 
 ## Architecture of the Generated Project
 
@@ -32,24 +20,21 @@ hook path.
 │   ├── agentcore.json          # Customized with all 4 memory types + JWT authorizer
 │   └── .cli/
 ├── app/<AgentName>/
-│   ├── main.py                 # S3SessionManager (default) or AgentCoreMemorySessionManager
-│   ├── pyproject.toml
+│   ├── main.py                 # S3SessionManager + Azure OpenAI model config
+│   ├── pyproject.toml          # Includes openai + azure-identity deps
 │   ├── .gitignore
 │   ├── README.md
 │   └── src/
 │       └── agents/
-│           └── main_agent.py
+│           └── main_agent.py   # Agent definition using Azure OpenAI model
 ```
 
-**Two session-manager paths** (choose by commenting/uncommenting in `main.py`):
+**Session manager:** Uses Strands' built-in `S3SessionManager` — simple,
+durable S3-backed session storage.
 
-| Path | Session Manager | Description |
-|------|----------------|-------------|
-| **Default** | `S3SessionManager` | Strands' built-in S3 session storage. Simple, no long-term memory (LTM). |
-| **Advanced** | `AgentCoreMemorySessionManager` + `S3ArchiveHook` | Full LTM strategies (semantic, summaries, preferences, episodic) **plus** an S3 archive hook that writes every raw message to S3 for audit / cold storage. |
-
-The boilerplate ships with the **Advanced** path commented out — switch by
-uncommenting the AgentCore Memory blocks and removing the S3SessionManager block.
+**Model provider:** Azure OpenAI — configured via environment variables:
+`AZURE_OPENAI_ENDPOINT`, `AZURE_OPENAI_API_KEY`, `AZURE_OPENAI_DEPLOYMENT_NAME`,
+and `AZURE_OPENAI_API_VERSION`.
 
 ## Workflow
 
@@ -97,10 +82,11 @@ by saying "defaults" or pressing Enter.
 2. **Cognito User Pool ID** — default: skip (leave `REPLACE_ME_USER_POOL_ID`
    placeholder). If they provide one, also ask for the **Cognito Client ID**
    and the pool's **region**.
-3. **Agent framework** — default: `Strands`. Also offer `LangChain_LangGraph`,
+3. **Azure OpenAI Endpoint** — default: skip (leave `REPLACE_ME_AZURE_ENDPOINT`
+   placeholder). If they provide one, also ask for the **API Key**,
+   **Deployment Name**, and **API Version**.
+4. **Agent framework** — default: `Strands`. Also offer `LangChain_LangGraph`,
    `OpenAIAgents`, `GoogleADK`, `VercelAI`.
-4. **Model provider** — default: `Bedrock`. Also offer `Anthropic`, `OpenAI`,
-   `Gemini`.
 
 **IMPORTANT:** Do NOT proceed to Step 3 until Step 1 is complete and the
 user has confirmed both names. Skipping this causes the agent to guess
@@ -123,13 +109,15 @@ agentcore create \
   --region <region>
 ```
 
-Add `--model-provider <provider>` and `--api-key <key>` if not Bedrock.
-
 **Important:** `agentcore create` is interactive by default. Use the
 `--defaults` flag to accept defaults for any prompts we haven't covered,
 and provide all known answers via flags to minimize prompts.
 
 If the user wants a fully non-interactive run, add `--defaults --skip-git`.
+
+**Note:** The `agentcore create` CLI may not have a built-in Azure OpenAI
+provider option. If it doesn't, accept the default model provider (Bedrock)
+for scaffolding — we will replace the model configuration in Step 5.
 
 ### Step 4: Customize `agentcore.json`
 
@@ -203,14 +191,29 @@ single memory with 2 strategies. Replace it with one memory containing all
 
 Also update `tags.agentcore:project-name` to match the chosen project name.
 
+#### 4c. Add Azure OpenAI environment variables to the runtime
+
+In `runtimes[0]`, add an `environment` block with Azure OpenAI variables:
+
+```json
+"environment": {
+  "AZURE_OPENAI_ENDPOINT": "<azure-endpoint>",
+  "AZURE_OPENAI_API_KEY": "<azure-api-key>",
+  "AZURE_OPENAI_DEPLOYMENT_NAME": "<deployment-name>",
+  "AZURE_OPENAI_API_VERSION": "2024-10-21",
+  "S3_SESSION_BUCKET": "<project-name-lower>-agentcore-sessions"
+}
+```
+
+Use the values collected in Step 2, or placeholders if skipped.
+
 ### Step 5: Customize `main.py`
 
 Read the template from `templates/main.py` (located alongside this SKILL.md)
-and write it to `app/<AgentName>/main.py`. The template contains two paths:
+and write it to `app/<AgentName>/main.py`. The template configures:
 
-- **Default path (active):** `S3SessionManager` — simple S3-backed session storage, no LTM.
-- **Advanced path (commented out):** `AgentCoreMemorySessionManager` + `S3ArchiveHook` —
-  full LTM with S3 cold storage of every raw message.
+- **S3SessionManager** — Strands' built-in S3 session storage
+- **Azure OpenAI model** — configured via environment variables
 
 Substitute these placeholders when writing the file:
 
@@ -221,7 +224,24 @@ Substitute these placeholders when writing the file:
 | `{{AGENT_NAME}}` | Runtime name from `agentcore.json`, snake_case | `my_agent` |
 | `{{AGENT_DESCRIPTION}}` | One-line agent description | `"A helpful assistant that..."` |
 
-### Step 6: Scaffold the test frontend
+### Step 6: Customize `src/agents/main_agent.py`
+
+Read the template from `templates/main_agent.py` and write it to
+`app/<AgentName>/src/agents/main_agent.py`. This is the agent definition
+that wires up tools and the Azure OpenAI model.
+
+### Step 7: Update `pyproject.toml`
+
+After writing the agent files, add the `openai` dependency to the generated
+`pyproject.toml`. The `requires-python` constraint may need adjustment to
+match the runtime version in `agentcore.json` (typically `PYTHON_3_14`).
+
+Add to `[project].dependencies`:
+```
+"openai>=1.0.0",
+```
+
+### Step 8: Scaffold the test frontend
 
 Copy the entire `templates/frontend/` directory from this skill into a new
 `frontend/` folder at the project root (sibling to `agentcore/` and `app/`).
@@ -262,7 +282,7 @@ The frontend template includes:
   and attach a JWT to every agent request, matching the `CUSTOM_JWT` authorizer
   configured in `agentcore.json`.
 
-### Step 7: Scaffold the S3 policy script
+### Step 9: Scaffold the S3 policy script
 
 Copy `templates/attach-s3-policy.sh` from this skill into the project root:
 
@@ -278,7 +298,7 @@ Substitute `{{S3_SESSION_BUCKET}}` with the session bucket name derived in Step 
 - Attaches an inline IAM policy granting `s3:PutObject`, `s3:GetObject`, and `s3:ListBucket` on the session bucket
 - Is idempotent — safe to run after every deploy
 
-### Step 8: Report what was created
+### Step 10: Report what was created
 
 After all changes are written, summarize:
 
@@ -286,16 +306,49 @@ After all changes are written, summarize:
 - S3 bucket name and the `attach-s3-policy.sh` script for IAM setup
 - The Cognito authorizer placeholder values they need to fill in (both in
   `agentcore.json` and `frontend/.env`)
-- The two session-manager paths and how to switch between them
-- The two chat modes and how to switch between them
+- Azure OpenAI environment variables to configure (endpoint, API key, deployment name)
 - Next steps: `agentcore dev` for local development, `agentcore deploy` to ship
+
+## Azure OpenAI Configuration
+
+### Environment Variables
+
+| Variable | Description | Example |
+|---|---|---|
+| `AZURE_OPENAI_ENDPOINT` | Azure OpenAI resource endpoint | `https://my-resource.openai.azure.com` |
+| `AZURE_OPENAI_API_KEY` | Azure OpenAI API key | `abc123...` |
+| `AZURE_OPENAI_DEPLOYMENT_NAME` | Model deployment name | `gpt-4o` |
+| `AZURE_OPENAI_API_VERSION` | Azure OpenAI API version | `2024-10-21` |
+
+### Model Configuration in Code
+
+The `main.py` template wires these env vars into a lazily-initialized
+`AsyncAzureOpenAI` client:
+
+```python
+from openai import AsyncAzureOpenAI
+
+_azure_client = None
+
+def _get_azure_client():
+    global _azure_client
+    if _azure_client is None:
+        _azure_client = AsyncAzureOpenAI(
+            azure_endpoint=os.environ["AZURE_OPENAI_ENDPOINT"],
+            api_key=os.environ["AZURE_OPENAI_API_KEY"],
+            api_version=os.environ.get("AZURE_OPENAI_API_VERSION", "2024-10-21"),
+        )
+    return _azure_client
+```
+
+The `main_agent.py` uses this client to create the model and agent.
 
 ## Boilerplate Reference
 
 ### The 4 AgentCore Memory Strategy Types
 
 | Type | `agentcore.json` key | Purpose | Default namespace |
-|------|---------------------|---------|-------------------|
+|---|---|---|---|
 | `SEMANTIC` | `type: "SEMANTIC"` | Extracts factual knowledge about the user/domain | `/strategies/{memoryStrategyId}/actors/{actorId}/` |
 | `SUMMARIZATION` | `type: "SUMMARIZATION"` | Compresses conversations into running summaries | `/strategies/{memoryStrategyId}/actors/{actorId}/sessions/{sessionId}/` |
 | `USER_PREFERENCE` | `type: "USER_PREFERENCE"` | Captures user choices, styles, and interaction patterns | `/strategies/{memoryStrategyId}/actors/{actorId}/` |
@@ -321,10 +374,11 @@ S3 bucket names must:
    `requires-python = ">=3.12, <3.14"`. The runtime version in `agentcore.json`
    is `PYTHON_3_14` — these should agree. If `agentcore create` generates a
    mismatched constraint, fix `pyproject.toml` to match the runtime.
-4. **Memory names must match.** The memory name in `agentcore.json`
+4. **Azure OpenAI API key security.** Never hardcode the API key. Store it
+   in AgentCore environment variables (configured in `agentcore.json`) or
+   AWS Secrets Manager. The template reads it from the environment.
+5. **Memory names must match.** The memory name in `agentcore.json`
    (`<ProjectName>Memory`) must match the `MEMORY_<NAME>_ID` env var that
-   AgentCore injects at deploy time. The boilerplate uses `MEMORY_ID`
-   as a fallback, but the exact env var name is
-   `MEMORY_<UPPERCASED_MEMORY_NAME>_ID`.
-5. **The `main.py` name field in `StrandsAgent`** must be a valid
+   AgentCore injects at deploy time.
+6. **The `main.py` name field in `StrandsAgent`** must be a valid
    identifier (no spaces, hyphens, or special characters). Use snake_case.
