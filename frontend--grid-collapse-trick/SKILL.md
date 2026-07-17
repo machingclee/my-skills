@@ -48,6 +48,3 @@ animate natively via `transition-all`. Unlike `max-h-0` → `max-h-96` hacks, th
 </div>
 ```
 
-## Existing usage in this project
-
-`Step3TimeslotManager.tsx` — submission button collapses when no pending timeslot changes.
