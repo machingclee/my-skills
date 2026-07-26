@@ -37,7 +37,8 @@ src/store/
 │   └── appSlice.ts          # accessToken + refreshToken (hydrates from localStorage)
 └── api/
     ├── baseApi.ts           # createApi — auto headers, auto {success,result} unwrap
-    └── exampleApi.ts        # injectEndpoints — one dummy endpoint
+    ├── normalize.ts         # normalizeUtil — normalizr wrapper for list endpoints
+    └── exampleApi.ts        # injectEndpoints — demo list normalization + mutation
 ```
 
 ### What the templates include by default
@@ -59,6 +60,10 @@ src/store/
   to Redux via a direct `import { store }` (safe because it only runs at
   runtime, never during module evaluation).  Endpoints just declare
   `builder.mutation<ReturnType, InputType>` — no `transformResponse` needed.
+- **`normalize.ts`** — thin wrapper around `normalizr`.  Converts an array of
+  entities into `{ ids, idToObject }`.  Used inside `transformResponse` on
+  every list endpoint.  `idAttribute` is typed as `keyof T & string` so
+  TypeScript catches misspelled ID fields.  See § Normalization Pattern below.
 - **`appSlice.ts`** — initialises token state from localStorage so the store
   survives a full-page reload.  The `clearTokens` reducer sets `accessToken`,
   `refreshToken`, and (if present) `authenticatedUser` to `null`.
@@ -84,7 +89,77 @@ Templates map 1:1 to the tree above:
 - `templates/hooks.ts`        → `src/store/hooks.ts`
 - `templates/slices/appSlice.ts` → `src/store/slices/appSlice.ts`
 - `templates/api/baseApi.ts`  → `src/store/api/baseApi.ts`
+- `templates/api/normalize.ts` → `src/store/api/normalize.ts`
 - `templates/api/exampleApi.ts` → `src/store/api/exampleApi.ts`
+
+## Normalization Pattern
+
+**Every list endpoint must use `transformResponse` with `normalizeUtil`.**
+This avoids the N+1 problem: without it, rendering 10 list items would trigger
+10 per-item API calls.  With normalization, all 10 items share one API call
+and select their data from the cached list.
+
+### The pattern in three parts
+
+**1. Endpoint — `transformResponse` + list tag invalidation**
+
+```ts
+getList: builder.query<
+    { ids: number[]; idToObject: Record<string, MyEntity> },
+    number
+>({
+    query: (parentId) => `/parent/${parentId}/items`,
+    transformResponse: (response: MyEntity[]) =>
+        normalizeUtil({ targetArr: response, idAttribute: "id" }),
+    providesTags: ["MyEntity"],
+}),
+```
+
+- `idAttribute` is typed `keyof T & string` — you get autocomplete and a
+  compile error if you misspell the field name.
+- `ids` preserves the original ID type (e.g. `number` for a numeric PK).
+  No type assertion needed — `normalizr` infers it from the data.
+- `idToObject` keys are always `string` (JavaScript object keys are strings
+  at runtime).  Lookups use `idToObject[String(myId)]`.
+
+**2. Parent component — pass only IDs, not full objects**
+
+```ts
+const { data } = myApi.endpoints.getList.useQuery(parentId);
+const ids = data?.ids ?? [];
+//  ^? number[] — type flows from the entity's "id" field
+<ScheduleCard scheduledCarIds={ids} scheduleId={parentId} />
+```
+
+Do **not** convert `idToObject` back to an array of objects at the parent
+level — pass the IDs down and let each child select what it needs.
+
+**3. Child component — `selectFromResult` to get one item from cache**
+
+```ts
+const { data: item } = myApi.endpoints.getList.useQuery(scheduleId, {
+    skip: !scheduleId,
+    selectFromResult: (result) => ({
+        ...result,
+        data: result.data?.idToObject[String(myId)],
+    }),
+});
+// item?.description, item?.scheduleLinks, etc.
+```
+
+RTK Query deduplicates identical queries, so 10 children each calling
+`getList.useQuery(sameScheduleId)` still produce only 1 network request.
+
+### Mutations — invalidate the list tag
+
+Any mutation that changes a list item must invalidate the list's tag:
+
+```ts
+updateItem: builder.mutation<void, { id: number }>({
+    query: ({ id, ...body }) => ({ url: `/items/${id}`, method: "PUT", body }),
+    invalidatesTags: ["MyEntity"],  // refetches the list, all children re-render
+}),
+```
 
 ## Wiring Notes (tell the user once)
 
@@ -157,6 +232,7 @@ Requires these in the project's `package.json`:
 
 ```json
 "@reduxjs/toolkit": "^2.0.0",
+"normalizr": "^3.6.0",
 "react-redux": "^9.0.0"
 ```
 

@@ -1,0 +1,7 @@
+{
+  "_description": "Maps git user names to their domain.util and frontend source repo paths. Add new entries as more people adopt this skill — each user is asked once, then their paths are saved here.",
+  "machingclee": {
+    "domainUtil": "/Users/chingcheonglee/Repos/hkev/java-modules/domain.util",
+    "frontendSource": "/Users/chingcheonglee/Repos/hkev/echarge-event-storming-component"
+  }
+}

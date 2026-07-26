@@ -33,22 +33,41 @@ Invoke this skill before building/copying the frontend when the user asks to:
 - "customize the flow diagram frontend" / "point the visualizer at my endpoint".
 - "refresh / rebuild the bundled frontend" for a specific module.
 
-## CRITICAL — Ask the user first (do not assume paths)
+## User path registry — check first, ask once
 
-Before building or copying anything, ask the user for the two inputs below. Use
-`AskUserQuestion` (or ask in prose) when there is any ambiguity; only fall back to a
-default when the user has already stated it or it is obvious from context.
+This skill maintains `paths.json` alongside this SKILL.md — a registry mapping git user
+names to their `domainUtil` and `frontendSource` paths. Each user is asked once; their
+answer is saved so they never have to re-enter paths on that machine.
 
-1. **Target module** — which Java module should receive the frontend?
-   - Default: the module rooted at the current working directory.
-   - Confirm the absolute path of its `src/main/resources/META-INF/resources/` before
-     writing. If the cwd is not a module root, ask which module.
+**Before asking the user anything**, resolve paths in this order:
 
-2. **Frontend source repo** — path to the `event-storming-component` repo.
-   - Try to locate a sibling `event-storming-component` (e.g.
-     `../../event-storming-component` relative to the target module) and confirm
-     it has `package.json` + `vite.config.ts`.
-   - If not found, or if more than one candidate exists, **ask the user** for the path.
+1. **Identify the current user** — run `git config user.name`. Use that as the lookup key.
+2. **Read `paths.json`** — check two locations in order:
+   - `.claude/skills/paths.json` in the current project (if it exists).
+   - `paths.json` alongside this SKILL.md (`~/.claude/skills/spring--add-event-storming-frontend/paths.json`).
+   Look up the user's entry in whichever file is found.
+3. **If found** — confirm the paths still exist on disk (`src/main/resources/META-INF/resources/`
+   for `domainUtil`, `package.json` + `vite.config.ts` for `frontendSource`). If valid, use
+   them directly (no prompt needed). If they look stale (directories missing), tell the user
+   and fall through to step 4.
+4. **If not found (or stale)** — ask for:
+   - **Target module** — which Java module should receive the frontend?
+     - Default: the module rooted at the current working directory.
+     - Confirm the absolute path of its `src/main/resources/META-INF/resources/`.
+   - **Frontend source repo** — path to the `event-storming-component` repo.
+     - Try to locate a sibling `event-storming-component` (e.g.
+       `../../event-storming-component` relative to the target module) and confirm
+       it has `package.json` + `vite.config.ts`.
+     - If not found or ambiguous, ask.
+   - After the user answers, **save** their entry to `paths.json`:
+     ```json
+     "<git-user>": {
+       "domainUtil": "<absolute-path-to-target-module>",
+       "frontendSource": "<absolute-path-to-frontend-repo>"
+     }
+     ```
+     Use `Write` to create/update the file if it doesn't exist, or `Edit` to add the new
+     entry to the existing JSON object.
 
 Also confirm (ask if unclear) two customization choices — see `templates/frontend-integration.md`:
 
@@ -88,7 +107,14 @@ Also confirm (ask if unclear) two customization choices — see `templates/front
    DEST=<target-module>/src/main/resources/META-INF/resources/command-visualization
    rm -rf "$DEST" && mkdir -p "$DEST" && cp -R <frontend-source>/dist/. "$DEST"/
    ```
-5. **Verify** the visualizer loads (see Verify below).
+5. **Rebuild the Java module** — `cd` into the target module and run `mvn install` so the
+   JAR picks up the new frontend assets. Skip tests with `-DskipTests` if the user wants a
+   faster turnaround:
+   ```bash
+   cd <target-module>
+   mvn install -DskipTests
+   ```
+6. **Verify** the visualizer loads (see Verify below).
 
 ## Backend contract the frontend expects
 
