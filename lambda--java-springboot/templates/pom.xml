@@ -1,0 +1,112 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-parent</artifactId>
+        <version>4.0.7</version>
+        <relativePath/>
+    </parent>
+
+    <!-- TODO: set coordinates for your project -->
+    <groupId>com.example</groupId>
+    <artifactId>my-springboot-api</artifactId>
+    <version>0.0.1-SNAPSHOT</version>
+    <name>my-springboot-api</name>
+    <description>Spring Boot 4 API on AWS Lambda</description>
+
+    <properties>
+        <java.version>25</java.version>
+        <aws.serverless.container.version>3.0.2</aws.serverless.container.version>
+        <aws.lambda.java.core.version>1.4.0</aws.lambda.java.core.version>
+        <aws.lambda.java.events.version>3.16.1</aws.lambda.java.events.version>
+    </properties>
+
+    <dependencies>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-web</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>com.amazonaws.serverless</groupId>
+            <artifactId>aws-serverless-java-container-springboot4</artifactId>
+            <version>${aws.serverless.container.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>com.amazonaws</groupId>
+            <artifactId>aws-lambda-java-core</artifactId>
+            <version>${aws.lambda.java.core.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>com.amazonaws</groupId>
+            <artifactId>aws-lambda-java-events</artifactId>
+            <version>${aws.lambda.java.events.version}</version>
+        </dependency>
+
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <!-- Spring Boot 4: MockMvc / web layer test support lives in a dedicated starter -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-webmvc-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <finalName>function</finalName>
+        <plugins>
+            <!-- Keep spring-boot:run; skip fat-jar repackage (Lambda uses thin assembly). -->
+            <plugin>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-maven-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <id>repackage</id>
+                        <goals>
+                            <goal>repackage</goal>
+                        </goals>
+                        <configuration>
+                            <skip>true</skip>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+
+            <!--
+              Lambda packaging: classes at jar root + runtime deps under lib/
+              (NOT Spring Boot's fat jar / BOOT-INF layout).
+              Tomcat is excluded — aws-serverless-java-container provides the servlet bridge.
+            -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-assembly-plugin</artifactId>
+                <version>3.7.1</version>
+                <configuration>
+                    <descriptors>
+                        <descriptor>src/assembly/lambda.xml</descriptor>
+                    </descriptors>
+                    <finalName>function</finalName>
+                    <appendAssemblyId>false</appendAssemblyId>
+                    <attach>false</attach>
+                </configuration>
+                <executions>
+                    <execution>
+                        <id>lambda-package</id>
+                        <phase>package</phase>
+                        <goals>
+                            <goal>single</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
+</project>

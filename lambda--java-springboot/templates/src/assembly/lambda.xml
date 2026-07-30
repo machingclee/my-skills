@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Thin Lambda jar layout:
+    /com/.../*.class
+    /lib/*.jar   (runtime deps; Tomcat excluded)
+  Not a Spring Boot fat jar (no BOOT-INF/).
+-->
+<assembly xmlns="http://maven.apache.org/ASSEMBLY/2.2.0"
+          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+          xsi:schemaLocation="http://maven.apache.org/ASSEMBLY/2.2.0 https://maven.apache.org/xsd/assembly-2.2.0.xsd">
+    <id>lambda</id>
+    <formats>
+        <format>jar</format>
+    </formats>
+    <includeBaseDirectory>false</includeBaseDirectory>
+
+    <fileSets>
+        <fileSet>
+            <directory>${project.build.outputDirectory}</directory>
+            <outputDirectory>/</outputDirectory>
+        </fileSet>
+    </fileSets>
+
+    <dependencySets>
+        <dependencySet>
+            <outputDirectory>lib</outputDirectory>
+            <useProjectArtifact>false</useProjectArtifact>
+            <scope>runtime</scope>
+            <!-- Boot 4 renames embeds (spring-boot-tomcat / starter-tomcat); still exclude classic tomcat-embed-*. -->
+            <excludes>
+                <exclude>org.apache.tomcat.embed:*</exclude>
+                <exclude>org.apache.tomcat:*</exclude>
+                <exclude>org.springframework.boot:spring-boot-starter-tomcat</exclude>
+                <exclude>org.springframework.boot:spring-boot-starter-tomcat-runtime</exclude>
+                <exclude>org.springframework.boot:spring-boot-tomcat</exclude>
+            </excludes>
+        </dependencySet>
+    </dependencySets>
+</assembly>

@@ -16,6 +16,7 @@ This skill is the durable record for the user's personal terminal tools:
 | --- | --- | --- |
 | `ccs` | `~/.local/bin/ccs` | Interactive + scripted Claude provider switcher for CC Switch, plus tool actions |
 | `gm` | `~/.local/bin/gm` | Grok weekly/monthly quota without TUI |
+| `ds` | `~/.local/bin/ds` | DeepSeek prepaid API balance |
 | `grok-usage` | `~/.local/bin/grok-usage` | Thin shim that execs `gm` |
 
 Always edit the live files under `~/.local/bin/`. Do not recreate them from scratch unless the user asks for a rewrite.
@@ -126,6 +127,12 @@ Never clobber common hooks/plugins when switching providers. Always merge.
 | `ccs status` / `current` / `show` | active provider + key env |
 | `ccs pick` / `menu` / `ui` / `select` | force interactive menu |
 | `ccs gm` [args…] | run `gm` (passthrough args) |
+| `ccs ds` [args…] | run `ds` (DeepSeek balance) |
+| `ccs grok-launch` | start preferred proxy in a new Terminal (skips if already up) |
+| `ccs proxy` | show which claude-code-proxy is running (patched vs homebrew) |
+| `ccs proxy switch` | interactive pick + restart patched/homebrew |
+| `ccs proxy patched` / `ccs proxy homebrew` | restart with that binary; saves preference |
+| `ccs proxy stop` | stop listener on :18765 |
 | `ccs <name\|id>` | direct provider switch (substring / id prefix) |
 | `ccs help` | help |
 
@@ -139,7 +146,9 @@ Menu is built by `build_menu(providers)`:
 Current tool actions:
 
 - id `action:gm` — label `Grok Monitor (gm)` — runs `gm`
-- id `action:grok-launch` — label `Grok Launch` — opens a new Terminal window running `grok login` (to refresh auth) then `claude-code-proxy serve`; skips if the proxy is already listening on port 18765
+- id `action:ds` — label `DeepSeek balance (ds)` — runs `ds`
+- id `action:grok-launch` — label `Grok Launch` — opens a new Terminal window running `grok login` then preferred proxy `serve` (preference from `~/.config/ccs/proxy_flavor`, default patched); skips if already listening on port 18765 and prints which binary is up
+- id `action:proxy` — label `Proxy binary` — show/switch patched (`~/.grok/bin`) vs Homebrew stock; restarts listener on :18765
 
 Display marks:
 
@@ -197,6 +206,31 @@ gm help
 ```
 
 Headers should keep Grok client identity (`x-grok-client-identifier: xai-grok-cli`, etc.).
+
+## Current Architecture (`ds`)
+
+### Purpose
+
+Print DeepSeek prepaid API balance (not weekly % — pay-as-you-go credits).
+
+### Endpoint
+
+- `GET https://api.deepseek.com/user/balance`
+
+### Auth key sources (order)
+
+1. `DEEPSEEK_API_KEY` / `DEEPSEEK_TOKEN` env
+2. CC Switch Claude provider whose name/base contains `deepseek` (`ANTHROPIC_AUTH_TOKEN` etc.)
+3. `~/.claude/settings.json` when base URL is DeepSeek
+
+### Commands
+
+```text
+ds
+ds json
+ds help
+ccs ds
+```
 
 ## How to Apply Common Modifications
 
@@ -303,14 +337,20 @@ If they only write free-form text after loading the skill, treat that text as th
 ## Quick Usage Reminder (for the user)
 
 ```bash
-ccs                 # menu: providers + Grok Monitor + Grok Launch
+ccs                 # menu: providers + Grok Monitor + Grok Launch + Proxy binary
 ccs list
-ccs status
+ccs status          # includes which proxy binary is running
 ccs grok
 ccs deepseek
 ccs gm
 ccs gm weekly
-ccs grok-launch     # start proxy in new terminal (skips if running)
+ccs ds
+ds
+ccs grok-launch     # start preferred proxy in new terminal (skips if running)
+ccs proxy           # show patched vs homebrew (path, pid, version)
+ccs proxy switch    # pick and restart
+ccs proxy patched   # restart with ~/.grok/bin (recommended for Grok)
+ccs proxy homebrew  # restart with stock brew (120s timeout warning)
 gm weekly           # same quota tool directly
 ```
 

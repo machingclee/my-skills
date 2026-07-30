@@ -1,0 +1,18 @@
+server:
+  port: 8080
+  servlet:
+    encoding:
+      charset: UTF-8
+      force: true
+
+spring:
+  application:
+    name: my-springboot-api # TODO: app name
+  main:
+    # Faster Lambda / SnapStart-friendly startup; controllers still load on first use
+    lazy-initialization: true
+
+logging:
+  level:
+    root: INFO
+    com.example.app: DEBUG

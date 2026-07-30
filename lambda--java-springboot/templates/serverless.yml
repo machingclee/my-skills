@@ -1,0 +1,64 @@
+# Java Spring Boot 4 + AWS Lambda (SnapStart) + Serverless Framework v4
+# Docs: https://www.serverless.com/framework/docs
+service: my-springboot-api # TODO: rename to your project
+frameworkVersion: "4"
+
+package:
+  individually: true
+  artifact: target/function.jar
+
+provider:
+  name: aws
+  runtime: java25
+  stage: ${opt:stage, "dev"}
+  region: ap-southeast-2 # TODO: your AWS region
+  memorySize: 2048
+  timeout: 29
+  environment:
+    COMMIT_HASH: ${env:COMMIT_HASH, "local"}
+  # Optional VPC (uncomment when the app needs private subnets / RDS):
+  # vpc:
+  #   securityGroupIds:
+  #     - ${env:SECURITY_GROUP_ID}
+  #   subnetIds:
+  #     - ${env:SUBNET_ID_1}
+  #     - ${env:SUBNET_ID_2}
+  #     - ${env:SUBNET_ID_3}
+
+# ONE Lambda behind a REST API Gateway. LambdaHandler + aws-serverless-java-container
+# route each request to Spring MVC. Add controllers in Java — no serverless change needed.
+functions:
+  api:
+    handler: com.example.app.LambdaHandler # TODO: your package.LambdaHandler
+    snapStart: true
+    timeout: 29
+    memorySize: 2048
+    environment:
+      SPRING_PROFILES_ACTIVE: ${env:SPRING_PROFILES_ACTIVE, "default"}
+      IS_LAMBDA: "true"
+      MAIN_CLASS: com.example.app.Application # TODO: your package.Application
+    events:
+      - http: ANY /
+      - http: ANY /{proxy+}
+
+custom:
+  scriptable:
+    hooks:
+      # Build the Lambda jar inside Docker so the JDK matches runtime: java25
+      # even when the developer machine has a different JDK (or none).
+      "before:package:createDeploymentArtifacts": >
+        docker run --rm
+        -v "$(pwd)":/app
+        -v "$HOME/.m2":/root/.m2
+        -w /app
+        maven:3.9.11-eclipse-temurin-25
+        mvn -B -DskipTests package
+  # Keep only the last N Lambda versions (SnapStart publishes versions)
+  prune:
+    automatic: true
+    number: 3
+    oldestFirst: true
+
+plugins:
+  - serverless-scriptable-plugin
+  - serverless-prune-plugin

@@ -1,0 +1,57 @@
+# Production stage — same app, separate stack/stage
+service: my-springboot-api # TODO: rename to your project
+frameworkVersion: "4"
+
+package:
+  individually: true
+  artifact: target/function.jar
+
+provider:
+  name: aws
+  runtime: java25
+  stage: prod
+  region: ap-southeast-2 # TODO: your AWS region
+  memorySize: 2048
+  timeout: 29
+  environment:
+    COMMIT_HASH: ${env:COMMIT_HASH, "unknown"}
+  # vpc:
+  #   securityGroupIds:
+  #     - ${env:SECURITY_GROUP_ID}
+  #   subnetIds:
+  #     - ${env:SUBNET_ID_1}
+  #     - ${env:SUBNET_ID_2}
+  #     - ${env:SUBNET_ID_3}
+
+functions:
+  api:
+    handler: com.example.app.LambdaHandler # TODO: your package.LambdaHandler
+    snapStart: true
+    timeout: 29
+    memorySize: 2048
+    environment:
+      SPRING_PROFILES_ACTIVE: ${env:SPRING_PROFILES_ACTIVE, "prod"}
+      IS_LAMBDA: "true"
+      MAIN_CLASS: com.example.app.Application # TODO: your package.Application
+    events:
+      - http: ANY /
+      - http: ANY /{proxy+}
+
+custom:
+  scriptable:
+    hooks:
+      "before:package:createDeploymentArtifacts": >
+        docker run --rm
+        -v "$(pwd)":/app
+        -v "$HOME/.m2":/root/.m2
+        -w /app
+        maven:3.9.11-eclipse-temurin-25
+        mvn -B -DskipTests package
+  prune:
+    automatic: true
+    number: 3
+    oldestFirst: true
+
+plugins:
+  - serverless-scriptable-plugin
+  - serverless-prune-plugin

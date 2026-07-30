@@ -1,0 +1,18 @@
+{
+  "name": "my-springboot-api",
+  "version": "1.0.0",
+  "license": "MIT",
+  "private": true,
+  "scripts": {
+    "deploy": "serverless deploy --config serverless.yml",
+    "deploy:prod": "serverless deploy --config serverless-prod.yml",
+    "package": "serverless package --config serverless.yml",
+    "remove": "serverless remove --config serverless.yml",
+    "remove:prod": "serverless remove --config serverless-prod.yml"
+  },
+  "devDependencies": {
+    "serverless": "4.40.0",
+    "serverless-prune-plugin": "2.1.0",
+    "serverless-scriptable-plugin": "1.3.1"
+  }
+}
