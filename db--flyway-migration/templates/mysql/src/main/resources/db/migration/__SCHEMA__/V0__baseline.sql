@@ -1,0 +1,14 @@
+-- V0__baseline.sql
+-- Marker used with Flyway baseline for existing databases.
+-- It does NOT create any tables — it marks the starting point.
+--
+-- Existing DB that already has objects:
+--   npm run baseline:local:{{schema}}
+--   (or: mvn flyway:baseline -P {{schema}}-local)
+-- then add only forward migrations as V1__*.sql, V2__*.sql, ...
+--
+-- Brand-new empty schema:
+--   You may delete this file and start with V1__*.sql, or keep baseline at 0
+--   and start domain DDL at V1.
+--
+-- Do NOT put USE {{schema}}; here — the JDBC URL already selects the schema.

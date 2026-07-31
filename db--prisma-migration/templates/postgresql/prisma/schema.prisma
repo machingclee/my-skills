@@ -1,0 +1,39 @@
+// Prisma schema for {{projectName}}
+// Docs: https://pris.ly/d/prisma-schema
+//
+// PostgreSQL conventions used by this scaffold:
+// - Custom DB functions installed by migration 20260101000000_init_db_functions:
+//     ulid_as_uuid()              → UUID PK (time-sortable ULID bits)
+//     gen_created_at()            → epoch-ms Float (UTC)
+//     gen_created_at_hk_timestr() → 'YYYY-MM-DD HH24:MI:SS' in GMT+8
+// - Prefer UUID PKs via ulid_as_uuid(); use autoincrement Int only for pure join tables
+// - snake_case model + field names (match Postgres table/column names 1:1)
+// - Prefer @@index on FKs and frequently filtered columns
+// - Use @@map only when the Prisma model name must differ from the table name
+//
+// IMPORTANT: deploy 20260101000000_init_db_functions before any table that
+// references these defaults (npm run local:deploy on a fresh DB does this).
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ---------------------------------------------------------------------------
+// Sample domain model — replace / extend with real tables.
+// Keep the id + timestamp defaults as a project convention.
+// ---------------------------------------------------------------------------
+
+model example_item {
+  id            String  @id @default(dbgenerated("ulid_as_uuid()")) @db.Uuid
+  name          String  @default("")
+  description   String  @default("")
+  is_active     Boolean @default(true)
+  created_at    Float   @default(dbgenerated("gen_created_at()"))
+  created_at_hk String  @default(dbgenerated("gen_created_at_hk_timestr()"))
+
+  @@index([is_active])
+}

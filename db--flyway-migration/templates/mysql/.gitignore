@@ -1,0 +1,30 @@
+# Maven
+target/
+pom.xml.tag
+pom.xml.releaseBackup
+pom.xml.versionsBackup
+pom.xml.next
+release.properties
+dependency-reduced-pom.xml
+buildNumber.properties
+.mvn/timing.properties
+.mvn/wrapper/maven-wrapper.jar
+
+# Node (if package.json scripts are used alongside Maven)
+node_modules/
+
+# IDE / OS
+.idea/
+*.iml
+.vscode/
+*.swp
+.DS_Store
+
+# Local override confs with secrets (optional — uncomment if you keep secrets out of git)
+# flyway-*-prod.conf
+# flyway-*-dev.conf
+
+# Env files if introduced later
+.env
+.env.*
+!.env.example

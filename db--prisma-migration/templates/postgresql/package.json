@@ -1,0 +1,35 @@
+{
+  "name": "{{projectName}}",
+  "version": "1.0.0",
+  "description": "Prisma schema + multi-env migration project for {{projectName}} (PostgreSQL)",
+  "main": "index.js",
+  "scripts": {
+    "sha": "shasum -a 256",
+    "local:create": "dotenv -o -e .env.local -- prisma migrate dev --create-only",
+    "local:deploy": "dotenv -o -e .env.local -- prisma migrate deploy",
+    "local:apply": "dotenv -o -e .env.local -- prisma migrate resolve --applied ",
+    "local:status": "dotenv -o -e .env.local -- prisma migrate status",
+    "local:studio": "dotenv -o -e .env.local -- prisma studio",
+    "migrate:dev:deploy": "dotenv -o -e .env.dev -- prisma migrate deploy",
+    "migrate:dev:apply": "dotenv -o -e .env.dev -- prisma migrate resolve --applied ",
+    "migrate:dev:status": "dotenv -o -e .env.dev -- prisma migrate status",
+    "migrate:prod:deploy": "dotenv -o -e .env.prod -- prisma migrate deploy",
+    "migrate:prod:status": "dotenv -o -e .env.prod -- prisma migrate status",
+    "db:studio": "prisma studio",
+    "generate": "prisma generate",
+    "validate": "prisma validate",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": ["prisma", "migration", "postgresql"],
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "dotenv": "^17.4.2",
+    "dotenv-cli": "^11.0.0",
+    "prisma": "^7.8.0"
+  },
+  "dependencies": {
+    "@prisma/client": "^7.8.0",
+    "@types/node": "^25.9.0"
+  }
+}

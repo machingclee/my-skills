@@ -1,0 +1,85 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <!-- Standalone project — intentionally NOT a child of a parent multi-module pom -->
+    <groupId>{{groupId}}</groupId>
+    <artifactId>{{artifactId}}</artifactId>
+    <version>1.0</version>
+    <packaging>pom</packaging>
+    <name>{{artifactId}}</name>
+    <description>Standalone Flyway database migrations for {{projectName}} (schemas: {{SCHEMAS_LIST}})</description>
+
+    <properties>
+        <maven.compiler.source>17</maven.compiler.source>
+        <maven.compiler.target>17</maven.compiler.target>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <flyway.version>10.21.0</flyway.version>
+        <mysql.connector.version>8.4.0</mysql.connector.version>
+    </properties>
+
+    <profiles>
+        <!--
+          AGENT: expand one block triple (local/dev/prod) per schema.
+          Profile ids MUST match package.json: <schema>-local | <schema>-dev | <schema>-prod
+          Example for schema "billing":
+        -->
+        <!-- BEGIN_PROFILE_TEMPLATE
+        <profile>
+            <id>{{schema}}-local</id>
+            <properties>
+                <flyway.locations>filesystem:${project.basedir}/src/main/resources/db/migration/{{schema}}</flyway.locations>
+                <flyway.configFiles>${project.basedir}/flyway-{{schema}}-local.conf</flyway.configFiles>
+            </properties>
+        </profile>
+        <profile>
+            <id>{{schema}}-dev</id>
+            <properties>
+                <flyway.locations>filesystem:${project.basedir}/src/main/resources/db/migration/{{schema}}</flyway.locations>
+                <flyway.configFiles>${project.basedir}/flyway-{{schema}}-dev.conf</flyway.configFiles>
+            </properties>
+        </profile>
+        <profile>
+            <id>{{schema}}-prod</id>
+            <properties>
+                <flyway.locations>filesystem:${project.basedir}/src/main/resources/db/migration/{{schema}}</flyway.locations>
+                <flyway.configFiles>${project.basedir}/flyway-{{schema}}-prod.conf</flyway.configFiles>
+            </properties>
+        </profile>
+        END_PROFILE_TEMPLATE -->
+
+        {{PROFILES}}
+    </profiles>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.flywaydb</groupId>
+                <artifactId>flyway-maven-plugin</artifactId>
+                <version>${flyway.version}</version>
+                <configuration>
+                    <!-- Load the schema-specific conf file selected by the active Maven profile.
+                         The conf file provides: url, user, password, locations, table -->
+                    <configFiles>
+                        <configFile>${flyway.configFiles}</configFile>
+                    </configFiles>
+                </configuration>
+                <dependencies>
+                    <dependency>
+                        <groupId>com.mysql</groupId>
+                        <artifactId>mysql-connector-j</artifactId>
+                        <version>${mysql.connector.version}</version>
+                    </dependency>
+                    <dependency>
+                        <groupId>org.flywaydb</groupId>
+                        <artifactId>flyway-mysql</artifactId>
+                        <version>${flyway.version}</version>
+                    </dependency>
+                </dependencies>
+            </plugin>
+        </plugins>
+    </build>
+
+</project>

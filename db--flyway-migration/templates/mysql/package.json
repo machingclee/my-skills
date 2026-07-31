@@ -1,0 +1,11 @@
+{
+  "name": "{{projectName}}",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Flyway multi-env migration scripts for {{projectName}} (schemas: {{SCHEMAS_LIST}})",
+  "scripts": {
+    {{SCRIPTS}}
+  },
+  "keywords": ["flyway", "migration", "mysql"],
+  "license": "UNLICENSED"
+}

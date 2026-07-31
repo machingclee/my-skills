@@ -1,0 +1,39 @@
+// Prisma schema for {{projectName}}
+// Docs: https://pris.ly/d/prisma-schema
+//
+// MySQL conventions used by this scaffold:
+// - snake_case model + field names (match MySQL table/column names 1:1)
+// - id Int @id @default(autoincrement())
+// - created_at BigInt as epoch-ms (UTC) via inline dbgenerated
+// - created_at_hk String as human-readable HK time (+8) via inline dbgenerated
+// - Prefer @@index on FKs and frequently filtered columns
+// - Use @@map only when the Prisma model name must differ from the table name
+//
+// Note: MySQL cannot host the custom SQL functions used on PostgreSQL
+// (ulid_as_uuid / gen_created_at / gen_created_at_hk_timestr). Defaults are
+// inlined as expressions instead.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+}
+
+// ---------------------------------------------------------------------------
+// Sample domain model — replace / extend with real tables.
+// Keep the timestamp defaults as a project convention.
+// ---------------------------------------------------------------------------
+
+model example_item {
+  id            Int     @id @default(autoincrement())
+  name          String  @default("")
+  description   String  @default("") @db.MediumText
+  is_active     Boolean @default(true)
+  created_at    BigInt  @default(dbgenerated("(UNIX_TIMESTAMP(UTC_TIMESTAMP(3)) * 1000)"))
+  created_at_hk String  @default(dbgenerated("(DATE_FORMAT(UTC_TIMESTAMP() + INTERVAL 8 HOUR, '%Y-%m-%d %H:%i:%s'))"))
+
+  @@index([id])
+  @@index([is_active])
+}
