@@ -1,0 +1,7 @@
+# Merge into application.yml. Keep ddl-auto none until the audit event table exists
+# (see templates/ddl/event-table.sql).
+spring:
+  jpa:
+    hibernate:
+      ddl-auto: none
+    open-in-view: false

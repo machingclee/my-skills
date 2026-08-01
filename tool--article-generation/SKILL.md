@@ -43,6 +43,7 @@ If any of these conditions are met, call `Skill("article-generation-style")` bef
   title: "Spring Boot Integration Test Setup Guide"
   date: 2026-06-07
   id: blog0511
+  uuid: "9f2c5d1e-4a3b-4c2d-9e8f-1a2b3c4d5e6f"
   tag: springboot, java, test
   img: springboot
   toc: true
@@ -51,6 +52,9 @@ If any of these conditions are met, call `Skill("article-generation-style")` bef
   wip: false
   ---
   ```
+
+- Every article must include a `uuid` field in the frontmatter (see the example above), placed right after `id`. Generate a fresh UUID v4 (e.g. `9f2c5d1e-4a3b-4c2d-9e8f-1a2b3c4d5e6f`) for each new article — never reuse a uuid from an existing article.
+- When creating the Traditional Chinese version (`xxx-name-tc.md`) of an article, it must reuse the exact same `uuid` as the English `xxx-name.md`. The uuid identifies the article across languages, so the two files always share one value.
 
 - Immediately after the frontmatter block, every article must include the following `<style>` block:
 

@@ -1,0 +1,26 @@
+<!-- Add to <dependencies> in pom.xml.
+     Library: https://github.com/machingclee/domain.util
+     Auto-configuration activates via META-INF/spring/...AutoConfiguration.imports. -->
+<dependency>
+    <groupId>com.machingclee</groupId>
+    <artifactId>domain-util</artifactId>
+    <version>0.1.0-SNAPSHOT</version>
+</dependency>
+
+<!-- Typical companions (often already present): -->
+<dependency>
+    <groupId>org.springframework.boot</groupId>
+    <artifactId>spring-boot-starter-web</artifactId>
+</dependency>
+<dependency>
+    <groupId>org.springframework.boot</groupId>
+    <artifactId>spring-boot-starter-data-jpa</artifactId>
+</dependency>
+<dependency>
+    <groupId>org.projectlombok</groupId>
+    <artifactId>lombok</artifactId>
+    <optional>true</optional>
+</dependency>
+
+<!-- No annotationProcessorPaths entry for domain-util is required
+     (multi-schema @TargetSchema processor was removed). -->
