@@ -1,7 +1,30 @@
 -- Bootstrap PostgreSQL helpers used as Prisma @default(dbgenerated(...)) values.
 -- Must run before any table migration that references these functions.
 -- Source pattern: wonderbricks wb-backend-node (pgcrypto + ULID-as-UUID + HK timestamps).
+--
+-- Functions are created in the "{{schemaName}}" schema. Prisma Migrate does NOT
+-- create non-default schemas automatically, so the schema is created here first
+-- (CREATE SCHEMA IF NOT EXISTS is a no-op for the default "public").
+--
+-- IMPORTANT — why every cross-function call below is schema-qualified:
+-- PL/pgSQL resolves unqualified names inside a function body against the
+-- CALLER's session search_path at call time (proconfig is NULL here), NOT the
+-- schema the function lives in. So ulid_as_uuid() calling plain generate_ulid()
+-- fails from any session whose search_path lacks {{schemaName}} — e.g. a JDBC
+-- connection without currentSchema, psql defaults ("$user", public), etc.
+-- Schema-qualifying ({{schemaName}}.*) makes the helpers work from ANY session.
 
+-- CreateSchema (idempotent — safe if already exists)
+CREATE SCHEMA IF NOT EXISTS "{{schemaName}}";
+
+-- Install the helper functions into the {{schemaName}} schema
+SET search_path TO "{{schemaName}}";
+
+-- pgcrypto installs into the first schema of search_path ({{schemaName}}) only
+-- when it is not already installed elsewhere. If the target DB already has
+-- pgcrypto in another schema (typically "public"), either re-point it with
+--   ALTER EXTENSION pgcrypto SET SCHEMA "{{schemaName}}";
+-- or qualify gen_random_bytes below with that other schema instead.
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
 -- Epoch milliseconds (UTC) as float — matches Prisma Float fields using gen_created_at()
@@ -40,7 +63,7 @@ BEGIN
   timestamp = SET_BYTE(timestamp, 4, (unix_time >> 8)::BIT(8)::INTEGER);
   timestamp = SET_BYTE(timestamp, 5, unix_time::BIT(8)::INTEGER);
 
-  ulid = timestamp || gen_random_bytes(10);
+  ulid = timestamp || {{schemaName}}.gen_random_bytes(10);
 
   output = output || CHR(GET_BYTE(encoding, (GET_BYTE(ulid, 0) & 224) >> 5));
   output = output || CHR(GET_BYTE(encoding, (GET_BYTE(ulid, 0) & 31)));
@@ -124,13 +147,13 @@ $$ LANGUAGE plpgsql IMMUTABLE;
 
 CREATE OR REPLACE FUNCTION ulid_to_uuid(ulid text) RETURNS uuid AS $$
 BEGIN
-  RETURN encode(parse_ulid(ulid), 'hex')::uuid;
+  RETURN encode({{schemaName}}.parse_ulid(ulid), 'hex')::uuid;
 END
 $$ LANGUAGE plpgsql IMMUTABLE;
 
 -- Primary key default used from Prisma: @default(dbgenerated("ulid_as_uuid()")) @db.Uuid
 CREATE OR REPLACE FUNCTION ulid_as_uuid() RETURNS uuid AS $$
 BEGIN
-  RETURN ulid_to_uuid(generate_ulid());
+  RETURN {{schemaName}}.ulid_to_uuid({{schemaName}}.generate_ulid());
 END
 $$ LANGUAGE plpgsql;

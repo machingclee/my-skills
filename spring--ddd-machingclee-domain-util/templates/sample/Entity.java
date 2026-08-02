@@ -1,11 +1,19 @@
 package {{basePackage}}.common.jpa.entity.{{context}};
 
 import jakarta.persistence.*;
+import lombok.Data;
 import lombok.EqualsAndHashCode;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 
+/**
+ * Aggregate root with nested DTOs (Style A).
+ * <p>
+ * Prefer {@code DTOMapper.toDTO(entity)} over hand-written mapping when MapStruct
+ * is available. Nested {@code DTO} / view types stay on the entity; HTTP request
+ * bodies go in {@code common.dto.request} (Style B).
+ */
 @Getter
 @Setter
 @NoArgsConstructor
@@ -22,9 +30,24 @@ public class {{Entity}} {
     @Column(nullable = false)
     private String name;
 
-    public DTO toDto() {
-        return new DTO(id, name);
+    // region DTOs (Style A — nested on entity)
+    @Data
+    public static class DTO {
+        private Integer id;
+        private String name;
     }
 
-    public record DTO(Integer id, String name) {}
+    /** Optional list/detail views for GET APIs. */
+    @Data
+    public static class FrontendListDTO {
+        private Integer id;
+        private String name;
+    }
+
+    @Data
+    public static class FrontendSingleDTO {
+        private Integer id;
+        private String name;
+    }
+    // endregion
 }

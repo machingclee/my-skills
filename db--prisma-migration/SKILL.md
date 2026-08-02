@@ -50,6 +50,7 @@ Collect (or infer) before generating. **Ask for anything missing.**
 | `targetDir` | where to create the project | `./schema/billing` |
 | `projectName` | npm package name | `billing` (default: last path segment of `targetDir`) |
 | `databaseName` | DB name in `DATABASE_URL` | `billing` (default: same as `projectName`) |
+| `schemaName` | PostgreSQL schema the helpers/tables live in | `public` (default); e.g. `blog_system` for a dedicated schema |
 | `sampleModel` | include starter `example_item` | `true` (default) |
 
 ### Provider selection (do this first)
@@ -112,6 +113,8 @@ Copy from `.env.sample` when needed. Both are gitignored.
 5. **Substitute placeholders** in every copied text file:
    - `{{projectName}}` → e.g. `billing`
    - `{{databaseName}}` → e.g. `billing`
+   - `{{schemaName}}` → e.g. `public` or `blog_system` (PostgreSQL only; appears
+     in the functions migration, the DATABASE_URL scheme, and the README)
 
 6. **Optional: empty schema.** If `sampleModel` is `false`, strip the
    `example_item` model from `schema.prisma` and leave only the `generator` +
@@ -182,7 +185,8 @@ Mirror these npm scripts exactly (already in both templates). They use
 1. **Bootstrap migration (always ship first):**
    `prisma/migrations/20260101000000_init_db_functions/migration.sql`
 
-   Creates / replaces:
+   Creates / replaces (in the `{{schemaName}}` schema):
+   - `CREATE SCHEMA IF NOT EXISTS "{{schemaName}}"`
    - `CREATE EXTENSION IF NOT EXISTS pgcrypto`
    - `gen_created_at() → float` (UTC epoch ms)
    - `gen_created_at_hk_timestr() → text` (`YYYY-MM-DD HH24:MI:SS` GMT+8)
@@ -191,9 +195,21 @@ Mirror these npm scripts exactly (already in both templates). They use
    Copied from the wonderbricks / wb-backend-node pattern. Do **not** omit this
    folder when scaffolding PostgreSQL.
 
-2. **Naming:** `snake_case` preferred for new projects (wonderbricks legacy may use camelCase — do not mix styles inside one new package).
+2. **Search_path trap — schema-qualify every internal call.** PL/pgSQL resolves
+   unqualified names *inside* a function body against the **caller's session
+   search_path at call time** (proconfig is NULL unless a `SET search_path`
+   clause is attached), NOT the schema the function lives in. So
+   `ulid_as_uuid()` calling bare `generate_ulid()` fails from any session whose
+   search_path lacks the schema — e.g. a JDBC connection without
+   `currentSchema`, or psql defaults (`"$user", public`). The template
+   therefore qualifies all cross-function calls (`{{schemaName}}.generate_ulid()`
+   etc.) and `SET search_path` scopes creation. **Never "simplify" those
+   qualifications away**, and if adding new helper functions to this migration,
+   keep every internal call schema-qualified.
 
-3. **PKs:** prefer
+4. **Naming:** `snake_case` preferred for new projects (wonderbricks legacy may use camelCase — do not mix styles inside one new package).
+
+5. **PKs:** prefer
 
    ```prisma
    id String @id @default(dbgenerated("ulid_as_uuid()")) @db.Uuid
@@ -201,18 +217,18 @@ Mirror these npm scripts exactly (already in both templates). They use
 
    Use `Int @id @default(autoincrement())` only for pure join tables.
 
-4. **Timestamps (call the functions):**
+6. **Timestamps (call the functions):**
 
    ```prisma
    created_at    Float  @default(dbgenerated("gen_created_at()"))
    created_at_hk String @default(dbgenerated("gen_created_at_hk_timestr()"))
    ```
 
-5. **Order matters:** functions migration must be applied before any table that
+7. **Order matters:** functions migration must be applied before any table that
    references those defaults. Timestamp `20260101000000` keeps it first
    alphabetically/chronologically among normal Prisma migration folders.
 
-6. **Prisma 7:** `datasource db { provider = "postgresql" }` only; URL in `prisma.config.ts`.
+8. **Prisma 7:** `datasource db { provider = "postgresql" }` only; URL in `prisma.config.ts`.
 
 Do **not** put `url = env("DATABASE_URL")` back into `schema.prisma` for this layout.
 
@@ -263,6 +279,12 @@ PostgreSQL functions migration.
 - **PostgreSQL privileges.** Installing extensions/functions needs a role that can
   `CREATE EXTENSION` (often superuser or rds_superuser on managed PG). Mention
   this if deploy fails on `pgcrypto`.
+- **PostgreSQL search_path trap.** A function's internal unqualified calls
+  resolve against the *caller's* search_path, so a working migration session
+  does not guarantee working app inserts (see the PostgreSQL conventions,
+  item 2). If the app still reports `function X() does not exist` from a
+  JDBC/Hibernate insert, the connection is missing the schema in search_path —
+  fix the functions (schema-qualify) rather than the connection.
 - **Database creation is out of band.** Prisma does not `CREATE DATABASE`; the
   target DB must already exist.
 - **Monorepo placement.** Typical path is `schema/<projectName>/`.
@@ -275,6 +297,11 @@ After scaffold:
 - [ ] Chosen provider matches `schema.prisma` `provider` and `migration_lock.toml`
 - [ ] PostgreSQL includes `20260101000000_init_db_functions/migration.sql` with
       `gen_created_at`, `gen_created_at_hk_timestr`, `ulid_as_uuid`
+- [ ] PostgreSQL functions migration has **no bare cross-function calls** —
+      `generate_ulid`, `parse_ulid`, `ulid_to_uuid`, `gen_random_bytes` are all
+      schema-qualified (`{{schemaName}}.`)
+- [ ] `{{schemaName}}` placeholder substituted everywhere (migration SQL,
+      README `?schema=`), default `public` when omitted
 - [ ] MySQL does **not** include that functions migration
 - [ ] `package.json` name is `projectName`
 - [ ] `schema.prisma` has no `url =`

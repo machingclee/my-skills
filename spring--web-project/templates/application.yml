@@ -1,0 +1,89 @@
+server:
+  port: 81
+
+spring:
+  mvc:
+    converters:
+      preferred-json-mapper: gson
+  http:
+    converters:
+      preferred-json-mapper: gson
+  jpa:
+    hibernate:
+      ddl-auto: none
+    properties:
+      hibernate:
+        hbm2ddl:
+          auto: none
+  flyway:
+    enabled: false
+
+security:
+  basic:
+    enabled: false
+
+management:
+  endpoints:
+    web:
+      base-path: /manage
+      exposure:
+        include: health,info,metrics,prometheus
+  endpoint:
+    health:
+      show-details: when-authorized
+    prometheus:
+      enabled: true
+  info:
+    env:
+      enabled: true
+  metrics:
+    tags:
+      application: {{context}}
+
+springdoc:
+  name: "{{App}} API"
+  version: 0.0.1
+  swagger-ui:
+    disable-swagger-default-url: true
+    operationsSorter: alpha
+    defaultModelsExpandDepth: -1
+
+logging:
+  level:
+    {{basePackage}}: DEBUG
+
+enable-security: true
+
+# JWT settings consumed by the user.authentication library.
+jwt:
+  secret: "Y2FuIHRoaXMgYmUgYSB2ZXJ5IGdvb2Qgc3RyaW5nIHdoYXQgaXMgbWVhbiBieSBiYXNlNjQgaGFoYSBvaCBubyBpdCBpcyBub3QgdGhhdCBsb25nICEhISEh"
+  expiration: 300000  # 5 mins
+  refresh-token:
+    expiration: 604800000 # 7 days in milliseconds
+
+dynamodb:
+  table:
+    refresh-token: "{{context}}-db-refresh-token"
+
+# Reuse the app's routing DataSource (write pool) as the auth library's DB.
+authdb:
+  datasourceBeanName: dataSource2Write
+
+# Read/write routing DataSource. Point these at real DBs per profile.
+# Multiple URLs on one side are load-balanced round-robin.
+app:
+  datasource:
+    write:
+      urls:
+        - jdbc:mysql://localhost:3306/{{context}}?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC
+      username: root
+      password: root
+    read:
+      urls:
+        - jdbc:mysql://localhost:3306/{{context}}?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC
+      username: root
+      password: root
+  s3:
+    bucket: ${S3_BUCKET:app-storage-dev}
+    region: ${S3_REGION:ap-east-1}
+    presigned-url-expiry-minutes: 10

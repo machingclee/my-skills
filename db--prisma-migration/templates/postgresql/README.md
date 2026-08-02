@@ -47,7 +47,7 @@ this migration first.
 | `.env.prod`  | `migrate:prod:*`  | production            |
 
 ```bash
-DATABASE_URL="postgresql://USER:PASSWORD@HOST:PORT/{{databaseName}}?schema=public"
+DATABASE_URL="postgresql://USER:PASSWORD@HOST:PORT/{{databaseName}}?schema={{schemaName}}"
 ```
 
 **Password special characters must be percent-encoded**.
@@ -118,9 +118,16 @@ Never run `prisma migrate dev` against shared/prod.
 
 1. **Functions first.** Table migrations that call `ulid_as_uuid()` /
    `gen_created_at()` fail if `init_db_functions` is not applied.
-2. Prefer create-only → review → deploy.
-3. Never `migrate dev` on shared DBs.
-4. Percent-encode passwords.
-5. Never rewrite applied migrations; fix-forward.
-6. Creating the database itself (`CREATE DATABASE`) is outside Prisma — create
+2. **search_path trap.** PL/pgSQL resolves unqualified names inside a function
+   body against the *caller's* session search_path at call time, not the schema
+   the function lives in. The bootstrap migration schema-qualifies every
+   internal call (`{{schemaName}}.generate_ulid()` etc.), which is why they work
+   from any session. If an app still gets `function X() does not exist`, the
+   connection lacks the schema in search_path — qualify the function calls, do
+   not patch the connection.
+3. Prefer create-only → review → deploy.
+4. Never `migrate dev` on shared DBs.
+5. Percent-encode passwords.
+6. Never rewrite applied migrations; fix-forward.
+7. Creating the database itself (`CREATE DATABASE`) is outside Prisma — create
    `{{databaseName}}` before first deploy.
