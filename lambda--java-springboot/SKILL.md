@@ -204,8 +204,9 @@ public class ItemController {
   catch-all, **SnapStart**, Docker `mvn package` hook, prune plugin.
 - `templates/serverless-prod.yml` — prod-stage sibling config.
 - `templates/pom.xml` — Spring Boot 4 parent, Java 25, Lambda deps,
-  assembly plugin → `target/function.jar` (classes + `lib/`, Tomcat excluded),
-  Boot repackage disabled.
+  `tomcat-embed-el` (Jakarta EL for Hibernate Validator), assembly plugin →
+  `target/function.jar` (classes + `lib/`, Tomcat excluded except
+  `tomcat-embed-el`), Boot repackage disabled.
 - `templates/src/assembly/lambda.xml` — assembly descriptor for the thin jar.
 - `templates/package.json` — `deploy` / `deploy:prod` / `package` / `remove`
   scripts; Serverless **4.40.0** + scriptable plugin.
@@ -301,11 +302,44 @@ public class ItemController {
     `org.springframework.boot.test.autoconfigure.web.servlet`.
 
 15. **Tomcat artifact names changed in Boot 4.** Exclude
-    `spring-boot-starter-tomcat*`, `spring-boot-tomcat*`, and classic
-    `tomcat-embed-*` from the assembly. Leaving them in bloats the package;
-    the servlet API (`jakarta.servlet-api`) must stay.
+    `spring-boot-starter-tomcat*`, `spring-boot-tomcat*`,
+    `tomcat-embed-core`, and `tomcat-embed-websocket` from the assembly.
+    Leaving them in bloats the package; the servlet API (`jakarta.servlet-api`)
+    must stay.
 
-16. **Do not add Gradle files.** This skill is Maven-only. If an older copy
+16. **Keep `tomcat-embed-el` for Hibernate Validator.** `tomcat-embed-el`
+    provides the Jakarta Expression Language implementation that Hibernate
+    Validator needs to build its `ValidatorFactory` (constraint message
+    interpolation). Normally, Spring Boot's embedded Tomcat supplies it, but
+    the Lambda assembly (`lambda.xml`) excludes Tomcat artifacts. Two
+    changes are required to keep `tomcat-embed-el` in the Lambda package:
+
+    - **`pom.xml`** — declare the dependency explicitly at `runtime` scope
+      (otherwise it may be excluded transitively):
+
+      ```xml
+      <dependency>
+          <groupId>org.apache.tomcat.embed</groupId>
+          <artifactId>tomcat-embed-el</artifactId>
+          <scope>runtime</scope>
+      </dependency>
+      ```
+
+    - **`src/assembly/lambda.xml`** — narrow the exclusions to only
+      `tomcat-embed-core` and `tomcat-embed-websocket`, instead of a wildcard
+      `org.apache.tomcat.embed:*` that strips `tomcat-embed-el`:
+
+      ```xml
+      <exclude>org.apache.tomcat.embed:tomcat-embed-core</exclude>
+      <exclude>org.apache.tomcat.embed:tomcat-embed-websocket</exclude>
+      ```
+
+    Without `tomcat-embed-el`, `HibernateValidator` fails at startup with a
+    cryptic `ValidatorFactory` initialization error. With it, validation
+    works and core Tomcat (`tomcat-embed-core`, `tomcat-embed-websocket`)
+    stays excluded — no extra bloat.
+
+17. **Do not add Gradle files.** This skill is Maven-only. If an older copy
     of the skill still had Gradle templates, delete them; never scaffold
     both build systems.
 
@@ -327,6 +361,7 @@ provider:
 - `mvn test` exits clean.
 - `mvn spring-boot:run` then `curl localhost:8080/ping` → JSON with `"pong"`.
 - `mvn -DskipTests package` produces `target/function.jar` containing
-  classes at root and a `lib/` directory (no `BOOT-INF/`, no tomcat jars).
+  classes at root and a `lib/` directory (no `BOOT-INF/`, no
+  `tomcat-embed-core` / `tomcat-embed-websocket`).
 - `npm run deploy` publishes a SnapStart-enabled function; API Gateway URL
   serves `/ping`.
