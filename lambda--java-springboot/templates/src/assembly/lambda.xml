@@ -26,9 +26,12 @@
             <outputDirectory>lib</outputDirectory>
             <useProjectArtifact>false</useProjectArtifact>
             <scope>runtime</scope>
-            <!-- Boot 4 renames embeds (spring-boot-tomcat / starter-tomcat); still exclude classic tomcat-embed-*. -->
+            <!-- Boot 4 renames embeds (spring-boot-tomcat / starter-tomcat); still exclude classic tomcat-embed-*.
+                 Keep tomcat-embed-el — it provides Jakarta EL that Hibernate Validator needs
+                 to build its ValidatorFactory (constraint message interpolation). -->
             <excludes>
-                <exclude>org.apache.tomcat.embed:*</exclude>
+                <exclude>org.apache.tomcat.embed:tomcat-embed-core</exclude>
+                <exclude>org.apache.tomcat.embed:tomcat-embed-websocket</exclude>
                 <exclude>org.apache.tomcat:*</exclude>
                 <exclude>org.springframework.boot:spring-boot-starter-tomcat</exclude>
                 <exclude>org.springframework.boot:spring-boot-starter-tomcat-runtime</exclude>

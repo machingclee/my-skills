@@ -47,6 +47,16 @@
             <version>${aws.lambda.java.events.version}</version>
         </dependency>
 
+        <!-- Jakarta Expression Language implementation — needed by Hibernate Validator
+             to build its ValidatorFactory (constraint message interpolation).
+             Explicitly declared so it survives exclusion in lambda.xml
+             (version managed by Spring Boot parent). -->
+        <dependency>
+            <groupId>org.apache.tomcat.embed</groupId>
+            <artifactId>tomcat-embed-el</artifactId>
+            <scope>runtime</scope>
+        </dependency>
+
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-test</artifactId>

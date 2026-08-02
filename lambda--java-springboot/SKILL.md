@@ -2,7 +2,7 @@
 name: lambda--java-springboot
 description: >-
   Scaffold a Java Spring Boot 4 web API (Maven, Java 25) that runs locally via
-  `mvn spring-boot:run` and deploys as one AWS Lambda behind REST API Gateway with
+  `mvn spring-boot:run` and deploys as one AWS Lambda behind HTTP API Gateway with
   SnapStart. Uses aws-serverless-java-container-springboot4,
   SpringBootLambdaContainerHandler, thin function.jar + lib/ (Tomcat excluded),
   and Serverless Framework v4 with a Docker Maven package hook.
@@ -22,7 +22,7 @@ description: >-
 # Java Spring Boot 4 on AWS Lambda (Maven + Serverless Framework v4)
 
 A Spring Boot web API that runs as a normal Boot app locally (`mvn spring-boot:run`)
-and deploys as a single AWS Lambda function behind a REST API Gateway, with
+and deploys as a single AWS Lambda function behind an HTTP API Gateway, with
 **Lambda SnapStart** enabled for faster cold starts. Pure HTTP plumbing —
 drop your own controllers/services in.
 
@@ -45,8 +45,8 @@ drop your own controllers/services in.
 ```
                 local dev                              AWS
         ┌──────────────────────────┐         ┌────────────────────────────────────┐
-   you ─▶ mvn spring-boot:run                │  API Gateway (REST)                │
-        │ Application.main                   │   http: ANY /  +  ANY /{proxy+}    │
+   you ─▶ mvn spring-boot:run                │  API Gateway (HTTP)                │
+        │ Application.main                   │   httpApi: ANY /  +  ANY /{proxy+} │
         │ embedded Tomcat :8080              │           │                        │
         └──────────────────────────┘         │           ▼                        │
                                              │  Lambda  …LambdaHandler            │
@@ -65,8 +65,8 @@ Two Java entry points — know which is which:
 | `Application.java`| Spring Boot main class + routes via `@RestController`s.           | everywhere  |
 | `LambdaHandler.java` | Lambda entry: `SpringBootLambdaContainerHandler` adapts Boot→Lambda. | Lambda only |
 
-There is exactly **one** Lambda function. The API Gateway rules `http: ANY /`
-and `http: ANY /{proxy+}` forward *every* request to it, and the container
+There is exactly **one** Lambda function. The API Gateway rules `httpApi: ANY /`
+and `httpApi: ANY /{proxy+}` forward *every* request to it, and the container
 adapter dispatches to the matching Spring MVC route. Add controllers under
 `controller/`; nothing else changes to deploy.
 
@@ -200,7 +200,7 @@ public class ItemController {
 
 ## Template files
 
-- `templates/serverless.yml` — provider (`java25`), single Lambda + REST
+- `templates/serverless.yml` — provider (`java25`), single Lambda + HTTP API
   catch-all, **SnapStart**, Docker `mvn package` hook, prune plugin.
 - `templates/serverless-prod.yml` — prod-stage sibling config.
 - `templates/pom.xml` — Spring Boot 4 parent, Java 25, Lambda deps,
@@ -245,7 +245,7 @@ public class ItemController {
    recover, but validate under load.
 
 5. **Static init of the container handler is intentional.**
-   `SpringBootLambdaContainerHandler.getAwsProxyHandler(Application.class)`
+   `SpringBootLambdaContainerHandler.getHttpApiV2ProxyHandler(Application.class)`
    in a `static` field warms the Spring context during SnapStart's init
    phase so restores skip full Boot startup. Keep heavy one-time setup in
    static/`@PostConstruct` that is safe to snapshot.
@@ -279,11 +279,13 @@ public class ItemController {
     don't stream large binaries through the API; redirect to S3 presigned
     URLs.
 
-12. **REST API (`http:`) vs HTTP API (`httpApi:`).** This skill uses REST
-    (`http:`) to match the billie project and Express skill. HTTP API is
-    cheaper/simpler if you don't need REST-only features; change `events`
-    accordingly and retest the adapter payload format (`AwsProxyRequest` is
-    API Gateway REST / payload 1.0).
+12. **HTTP API (`httpApi:`) — matching handler is critical.** This skill uses
+    HTTP API (`httpApi:`) because it is cheaper, simpler, and avoids REST
+    API features that Spring Boot already handles. The `LambdaHandler` uses
+    `getHttpApiV2ProxyHandler()` with `HttpApiV2ProxyRequest` (payload
+    format 2.0). If you switch to REST API (`http:` events), you must also
+    switch the handler to `getAwsProxyHandler()` with `AwsProxyRequest`
+    (payload format 1.0) — the two formats are incompatible.
 
 13. **VPC is optional.** The billie configs attach VPC for RDS access. The
     template leaves VPC commented out — uncomment and supply subnet /

@@ -34,8 +34,8 @@ functions:
       IS_LAMBDA: "true"
       MAIN_CLASS: com.example.app.Application # TODO: your package.Application
     events:
-      - http: ANY /
-      - http: ANY /{proxy+}
+      - httpApi: ANY /
+      - httpApi: ANY /{proxy+}
 
 custom:
   scriptable:
