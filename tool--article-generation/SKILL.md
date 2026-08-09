@@ -34,6 +34,7 @@ If any of these conditions are met, call `Skill("article-generation-style")` bef
 - Do not use a `—` as a sentence-level conjunction within paragraphs. Use commas or restructure the sentence instead.
 - Never line-break long sentences or paragraphs. Keep each paragraph in a single line. The user will wrap text in their editor.
 - Group closely related topics under a parent section (`###`) with child subsections (`####`). Avoid long flat lists of same-level headings. Use `#####` for deeper nesting when a subsection benefits from further breakdown.
+- When an article covers many topics, cluster them into a multi-level hierarchy that uses at least three heading levels (`###`, `####`, and `#####`). Prefer grouping related items under broader sections rather than listing many same-level headings side by side. Example shape: `### Domain Area` → `#### Capability` → `##### Concrete Step Or Detail`. Apply this whenever the outline would otherwise become a long flat list of peer sections.
 - When an article centers on a complete code listing or script, show the full, runnable listing in its own section first, then break it into component subsections that explain each part and reference the listing. The complete code precedes the explanation, not the other way around.
 - All titles must use Title Case: capitalize the first letter of each major word. Words such as "as", "to", "and", "or", "but" should be lowercase unless they are the first word of the title.
 - Every article must include the following frontmatter block at the top:
