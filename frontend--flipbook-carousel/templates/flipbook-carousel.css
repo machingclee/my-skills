@@ -1,0 +1,147 @@
+/* Flipbook deck — tight centered stack with front→rear page-turn handoff. */
+
+.flipbook-root {
+  --flipbook-height: min(70vh, 28rem);
+  width: 100%;
+  user-select: none;
+}
+
+/*
+ * Clip shell is separate from the 3D stage:
+ * overflow:hidden on a perspective / preserve-3d ancestor often fails to clip
+ * filter blur bleed. Isolate + clip on a non-3D wrapper fixes that.
+ */
+.flipbook-clip {
+  position: relative;
+  width: 100%;
+  height: var(--flipbook-height);
+  border-radius: var(--radius-card);
+  background: var(--color-border-faint);
+  overflow: hidden;
+  isolation: isolate;
+  contain: paint;
+  touch-action: none;
+  cursor: grab;
+}
+
+.flipbook-clip.is-dragging {
+  cursor: grabbing;
+}
+
+.flipbook-stage {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  perspective: 1200px;
+  perspective-origin: 50% 50%;
+  overflow: visible;
+}
+
+.flipbook-card {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.75rem;
+  box-sizing: border-box;
+  transform-style: preserve-3d;
+  transform-origin: center center;
+  will-change: transform, opacity, filter;
+  transition:
+    transform 420ms cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 360ms ease,
+    filter 360ms ease;
+  pointer-events: none;
+  backface-visibility: hidden;
+}
+
+.flipbook-clip.is-dragging .flipbook-card {
+  transition: none !important;
+}
+
+/* Default styling for card content (any ReactNode). Override per-call if needed. */
+.flipbook-card-content {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  max-width: 100%;
+  max-height: 100%;
+  border-radius: var(--radius-card);
+  background: var(--color-surface);
+  box-shadow:
+    0 10px 28px rgba(20, 16, 10, 0.16),
+    0 1px 0 rgba(20, 16, 10, 0.06);
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.flipbook-card-content img,
+.flipbook-card-content video {
+  display: block;
+  max-width: 100%;
+  max-height: min(70vh, 28rem);
+  width: auto;
+  height: auto;
+  object-fit: contain;
+  -webkit-user-drag: none;
+  user-select: none;
+  pointer-events: none;
+}
+
+/* Nav arrows sit on the root (outside the clip) so clicks never start a drag. */
+.flipbook-nav {
+  position: absolute;
+  top: calc(var(--flipbook-height) / 2);
+  transform: translateY(-50%);
+  z-index: 1100;
+  width: 2rem;
+  height: 2rem;
+  border-radius: 9999px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: color-mix(in srgb, var(--color-surface) 90%, transparent);
+  border: 1px solid var(--color-border-faint);
+  box-shadow: 0 1px 3px rgba(20, 16, 10, 0.12);
+  color: var(--color-ink);
+  cursor: pointer;
+  pointer-events: auto;
+}
+
+.flipbook-nav:hover:not(:disabled) {
+  background: var(--color-brand-tint);
+}
+
+.flipbook-nav:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+
+.flipbook-nav-prev {
+  left: 0.5rem;
+}
+
+.flipbook-nav-next {
+  right: 0.5rem;
+}
+
+/* Autoplay countdown bar — fills left→right over autoplayIntervalMs. */
+.flipbook-autoplay-track {
+  position: relative;
+  width: min(100%, 12rem);
+  height: 0.2rem;
+  margin: 0.65rem auto 0;
+  border-radius: 9999px;
+  background: var(--color-border-faint);
+  overflow: hidden;
+}
+
+.flipbook-autoplay-fill {
+  position: absolute;
+  inset: 0;
+  transform-origin: left center;
+  border-radius: inherit;
+  background: var(--color-brand);
+  will-change: transform;
+}

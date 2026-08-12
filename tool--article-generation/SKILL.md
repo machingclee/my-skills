@@ -79,3 +79,8 @@ If any of these conditions are met, call `Skill("article-generation-style")` bef
   Use these `{#anchor}` anchors when cross-referencing between sections (e.g., "see [Some Title](#some-title)").
 
 - When creating a new article, write the file to `/Users/chingcheonglee/Repos/Javascript/machingclee.github.io.source/app/src/mds/articles/tech/` using the naming convention that prefixes the markdown file with a sequential number (check existing files for the next available number).
+
+
+## Structure of the article
+
+Make sure to reorganize the article into ###, ####, ##### and ###### to better structure the content, don't simply use 2 levels ###, #### as it is hard to read.
