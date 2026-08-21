@@ -7,9 +7,9 @@ import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Component;
 
 /**
- * Persists domain events raised during command handling.
- * Prefer a single DomainEventLogger bean per application to avoid double-writes.
- * Storage location = {@link {{Context}}Event} {@code @Table} + this repository.
+ * Optional override. Auto-config already creates {@code DomainEventLogger}
+ * when there is a single {@link {{Context}}EventRepository}.
+ * Prefer a single logger bean per application to avoid double-writes.
  */
 @Component
 public class {{Context}}DomainEventLogger extends DomainEventLogger {

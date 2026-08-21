@@ -3,8 +3,9 @@ name: spring--ddd-machingclee-domain-util
 description: >-
   How to use the open-source com.machingclee:domain-util library
   (https://github.com/machingclee/domain.util) in a Spring Boot project:
-  Maven coordinates, single-pipeline glue beans (Event entity + repository,
-  CommandAuditor, CommandInvoker, DomainEventLogger), Command/Handler/Event/Policy
+  Maven coordinates, single-pipeline glue (Event entity + repository;
+  CommandAuditor / CommandInvoker / DomainEventLogger are auto-configured),
+  Command/Handler/Event/Policy
   examples with @BoundedContext/@Actor annotations, Query/QueryHandler GET APIs
   via DefaultQueryInvoker, two DTO styles (nested Entity.DTO vs common.dto package)
   with MapStruct DTOMapper (@Mapper componentModel=spring, unmappedTargetPolicy=ERROR),
@@ -23,7 +24,8 @@ Package root: `com.machingclee.domain.util`
 Coordinates: `com.machingclee:domain-util:0.1.0-SNAPSHOT` (bump when released)
 
 This skill describes **how to consume** the library after multi-schema routing was
-removed. Prefer **one invoker + one event logger** per application.
+removed. Provide **one** `AuditEvent` entity + `AuditEventRepository`; auto-config
+creates the invoker, auditor, and event logger. Prefer **one** pipeline per app.
 
 ## Mandatory trigger
 
@@ -36,7 +38,8 @@ Invoke before writing pipeline wiring when the user asks to:
 - migrate off multi-schema routing (`@TargetSchema` / `SchemaIdentifier` — not part of this library)
 
 This skill is project-agnostic: wire `com.machingclee:domain-util` into any Spring
-Boot app. Prefer **one** command invoker + **one** domain event logger per application.
+Boot app. Prefer **one** audit entity + repository (and therefore one invoker /
+logger) per application.
 
 ## Mental model
 
@@ -86,6 +89,13 @@ Prefer one `DomainEventLogger` bean. Multiple loggers would each receive every
 exists (`@ConditionalOnBean(QueryHandler.class)`). Inject `QueryInvoker` (or
 `DefaultQueryInvoker`) in controllers — do **not** hand-roll a second invoker.
 
+`CustomCommandInvoker`, `CustomCommandAuditor`, and `DomainEventLogger` are
+created automatically when **exactly one** `AuditEventRepository` bean exists.
+Inject `CommandInvoker`. Do **not** generate auditor / invoker / logger classes
+for the single-store case. Spring Data only creates that repository after the
+matching `AuditEvent` entity is a valid JPA type — entities themselves are not
+Spring beans, so there is no extra “wait for entity” condition.
+
 ## Placeholders
 
 | Placeholder | Meaning | Example |
@@ -122,7 +132,9 @@ Spring Boot auto-configuration is registered via
 `META-INF/spring/org.springframework.boot.autoconfigure.AutoConfiguration.imports`  
 — no `@Import` required. It wires `SpringDomainEventDispatcher`,
 `DefaultQueryInvoker` (when handlers exist), `ExternalEventPublisher`, entity
-graph helpers, and (when an invoker exists) `DocController` at `/docs`.
+graph helpers, write-path glue (`CommandAuditorPort` / `CommandInvoker` /
+`DomainEventLogger` when a single `AuditEventRepository` exists), and
+`DocController` at `/docs`.
 
 **No** annotation-processor path for domain-util is required (the old
 `@TargetSchema` processor is gone).
@@ -135,23 +147,29 @@ Also ensure the app has (usually already present):
 
 ## Glue beans (required for writes)
 
-Without these, the library has nothing to audit/persist against for **commands**.
+Consumers write **two** types. Auto-config creates auditor, invoker, and logger
+once **exactly one** `AuditEventRepository` bean exists.
 
 ```
 src/main/java/{{basePackage}}/
-  common/domainutils/{{context}}/
-    {{Context}}CommandInvoker.java     ← templates/CommandInvoker.java
-    {{Context}}CommandAuditor.java     ← templates/CommandAuditor.java
-    {{Context}}DomainEventLogger.java  ← templates/DomainEventLogger.java
   common/jpa/entity/{{context}}/
     {{Context}}Event.java              ← templates/EventEntity.java
   common/jpa/repository/
     {{Context}}EventRepository.java    ← templates/EventRepository.java
 ```
 
-Substitute placeholders and write the five files from `templates/`.
+The entity must implement `AuditEvent` and have a no-arg constructor
+(`@NoArgsConstructor`; protected is OK). Extra repository query methods are
+optional.
 
-### Constructor signatures (post-removal)
+Inject `CommandInvoker` (not a generated `{{Context}}CommandInvoker`).
+
+`templates/CommandInvoker.java`, `CommandAuditor.java`, and
+`DomainEventLogger.java` are **opt-in overrides** for multi-PU apps or custom
+audit behavior (`@ConditionalOnMissingBean`). Do not generate them for the
+common case.
+
+### Constructor signatures (manual override only)
 
 ```java
 // Invoker — NO schema argument
@@ -538,9 +556,9 @@ public class Create{{Entity}}CommandHandler
 ```java
 package {{basePackage}}.context.{{context}}.policy;
 
+import com.machingclee.domain.util.common.interfaces.CommandInvoker;
 import com.machingclee.domain.util.common.interfaces.Invariant;
 import com.machingclee.domain.util.common.interfaces.Policy;
-import {{basePackage}}.common.domainutils.{{context}}.{{Context}}CommandInvoker;
 import {{basePackage}}.context.{{context}}.event.{{Entity}}CreatedEvent;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -556,9 +574,9 @@ public class {{Context}}Policy implements Policy {
 
     private static final Logger log = LoggerFactory.getLogger({{Context}}Policy.class);
 
-    private final {{Context}}CommandInvoker invoker;
+    private final CommandInvoker invoker;
 
-    public {{Context}}Policy({{Context}}CommandInvoker invoker) {
+    public {{Context}}Policy(CommandInvoker invoker) {
         this.invoker = invoker;
     }
 
@@ -671,6 +689,7 @@ payload spans multiple aggregates (Style B `common.dto.response.*`).
 Inject the auto-configured invoker (`QueryInvoker` interface is preferred):
 
 ```java
+import com.machingclee.domain.util.common.interfaces.CommandInvoker;
 import com.machingclee.domain.util.common.query.interfaces.QueryInvoker;
 import {{basePackage}}.context.{{context}}.query.Get{{Entity}}ByIdQuery;
 
@@ -678,10 +697,10 @@ import {{basePackage}}.context.{{context}}.query.Get{{Entity}}ByIdQuery;
 @RequestMapping("/api/{{context}}")
 public class {{Entity}}Controller {
 
-    private final {{Context}}CommandInvoker commandInvoker;
+    private final CommandInvoker commandInvoker;
     private final QueryInvoker queryInvoker;
 
-    public {{Entity}}Controller({{Context}}CommandInvoker commandInvoker,
+    public {{Entity}}Controller(CommandInvoker commandInvoker,
                                 QueryInvoker queryInvoker) {
         this.commandInvoker = commandInvoker;
         this.queryInvoker = queryInvoker;
@@ -707,8 +726,8 @@ public class {{Entity}}Controller {
 |-------|-----------------|--------------|
 | Marker | `Command<R>` | `Query<R>` |
 | Handler | `CommandHandler<C,R>` | `QueryHandler<Q,R>` |
-| Invoker bean | Your `{{Context}}CommandInvoker` (manual glue) | `DefaultQueryInvoker` (auto-config) |
-| Inject as | `{{Context}}CommandInvoker` | `QueryInvoker` |
+| Invoker bean | `CustomCommandInvoker` (auto-config when one `AuditEventRepository` exists) | `DefaultQueryInvoker` (auto-config) |
+| Inject as | `CommandInvoker` | `QueryInvoker` |
 | Events / audit | Yes | No |
 | Typical HTTP | POST / PUT / PATCH / DELETE | GET |
 
@@ -733,7 +752,9 @@ Rebuild and copy into the library when customizing the UI.
 1. Confirm the consumer is a Spring Boot app with JPA (or scaffold one first).
 2. Add `templates/pom.snippet.xml` dependency; install the library to local m2 if needed.
 3. Collect `{{basePackage}}` + `{{Context}}` / `{{context}}` (+ first aggregate if scaffolding a sample).
-4. Generate the **five glue files** from `templates/` (mandatory for writes).
+4. Generate **entity + repository** from `templates/EventEntity.java` and
+   `templates/EventRepository.java`. Do **not** generate auditor / invoker /
+   logger unless the app has multiple `AuditEventRepository` beans.
 5. Optionally generate the **sample** write + read flow from `templates/sample/`  
    (Command/Handler/Event/Policy **and** Query/QueryHandler + controller GET/POST).
 6. Choose DTO placement: nested `Entity.DTO` (Style A) for command/query returns;  
@@ -753,6 +774,7 @@ Rebuild and copy into the library when customizing the UI.
 | Put business logic in the controller | `commandInvoker.invoke(command)` / `queryInvoker.invoke(query)` only |
 | Mutate state inside a `QueryHandler` | Use a `Command` + `CommandHandler` |
 | Manually `@Bean` a second query invoker | Use auto-configured `DefaultQueryInvoker` |
+| Generate auditor / invoker / logger for a single audit store | Inject `CommandInvoker`; auto-config creates the three beans |
 | Nest HTTP request DTOs on the entity | Style B: `common.dto.request.*` |
 | Put every response only in `dto` when the module uses `Entity.DTO` | Style A for 1-entity shapes; Style B only for composed APIs |
 | Hand-map entity fields in handlers when MapStruct exists | Inject `DTOMapper` |
@@ -770,7 +792,7 @@ Rebuild and copy into the library when customizing the UI.
 | `EventQueue` | `…common.interfaces` |
 | `Query` / `QueryHandler` / `QueryInvoker` | `…common.query.interfaces` |
 | `DefaultQueryInvoker` | `…common.query` |
-| `AbstractCommandInvoker` | `…common.command` |
+| `CommandInvoker` / `AbstractCommandInvoker` / `CustomCommandInvoker` | `…common.interfaces` / `…common.command` |
 | `CustomCommandAuditor` | `…common.command` |
 | `DomainEventLogger` | `…common.event` |
 | `DomainEventDispatcher` | `…common.interfaces` (impl `SpringDomainEventDispatcher`) |
@@ -785,11 +807,9 @@ Rebuild and copy into the library when customizing the UI.
 ## Checklist
 
 - [ ] `com.machingclee:domain-util` on classpath  
-- [ ] `{{Context}}Event` implements `AuditEvent` with `@Table`  
-- [ ] `{{Context}}EventRepository extends AuditEventRepository<…>`  
-- [ ] `{{Context}}CommandAuditor` bean  
-- [ ] `{{Context}}CommandInvoker` bean (5-arg `super`)  
-- [ ] `{{Context}}DomainEventLogger` bean (3-arg `super`) — only one  
+- [ ] `{{Context}}Event` implements `AuditEvent` with `@Table` + no-arg ctor  
+- [ ] `{{Context}}EventRepository extends AuditEventRepository<…>` (exactly one such bean)  
+- [ ] Controllers / policies inject `CommandInvoker` (auto-config; do not generate a subclass)  
 - [ ] Command handlers are `@Component` `CommandHandler` implementations (no schema annotation)  
 - [ ] Commands/queries carry `@BoundedContext` / `@Actor` when docs UI matters  
 - [ ] Query handlers are `@Component` `QueryHandler` implementations (`@Transactional(readOnly = true)`)  

@@ -1,8 +1,8 @@
 package {{basePackage}}.context.{{context}}.policy;
 
+import com.machingclee.domain.util.common.interfaces.CommandInvoker;
 import com.machingclee.domain.util.common.interfaces.Invariant;
 import com.machingclee.domain.util.common.interfaces.Policy;
-import {{basePackage}}.common.domainutils.{{context}}.{{Context}}CommandInvoker;
 import {{basePackage}}.context.{{context}}.event.{{Entity}}CreatedEvent;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -18,9 +18,9 @@ public class {{Context}}Policy implements Policy {
 
     private static final Logger log = LoggerFactory.getLogger({{Context}}Policy.class);
 
-    private final {{Context}}CommandInvoker invoker;
+    private final CommandInvoker invoker;
 
-    public {{Context}}Policy({{Context}}CommandInvoker invoker) {
+    public {{Context}}Policy(CommandInvoker invoker) {
         this.invoker = invoker;
     }
 

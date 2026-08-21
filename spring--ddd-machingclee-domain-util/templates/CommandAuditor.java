@@ -6,8 +6,9 @@ import {{basePackage}}.common.jpa.repository.{{Context}}EventRepository;
 import org.springframework.stereotype.Component;
 
 /**
- * Persists one {{Context}}Event row per command (and related audit helpers)
- * in REQUIRES_NEW transactions so the trail can survive outer rollbacks.
+ * Optional override. Auto-config already creates {@code CustomCommandAuditor}
+ * when there is a single {@link {{Context}}EventRepository}.
+ * Persists one {{Context}}Event row per command in REQUIRES_NEW transactions.
  */
 @Component
 public class {{Context}}CommandAuditor extends CustomCommandAuditor<{{Context}}Event> {

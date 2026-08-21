@@ -9,12 +9,12 @@ import org.springframework.stereotype.Component;
 import org.springframework.transaction.PlatformTransactionManager;
 
 /**
- * Entry point for executing Commands.
- * Orchestration (tx, audit, event dispatch) lives in {@link AbstractCommandInvoker}.
- * This subclass only injects auditor + event repository + transaction manager.
- * Physical storage is controlled by {@link {{Context}}Event}'s {@code @Table}.
+ * Optional override. Auto-config already creates {@code CustomCommandInvoker}
+ * when there is a single {@link {{Context}}EventRepository}. Use this class only
+ * for multi-PU apps or custom wiring.
  *
- * Registers all CommandHandler beans in the application context (single pipeline).
+ * Orchestration lives in {@link AbstractCommandInvoker}.
+ * Physical storage is controlled by {@link {{Context}}Event}'s {@code @Table}.
  */
 @Component
 public class {{Context}}CommandInvoker extends AbstractCommandInvoker<{{Context}}Event> {

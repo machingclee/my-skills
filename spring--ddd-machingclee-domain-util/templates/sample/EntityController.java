@@ -1,7 +1,7 @@
 package {{basePackage}}.controller;
 
+import com.machingclee.domain.util.common.interfaces.CommandInvoker;
 import com.machingclee.domain.util.common.query.interfaces.QueryInvoker;
-import {{basePackage}}.common.domainutils.{{context}}.{{Context}}CommandInvoker;
 import {{basePackage}}.common.dto.request.Create{{Entity}}DTO;
 import {{basePackage}}.common.jpa.entity.{{context}}.{{Entity}};
 import {{basePackage}}.context.{{context}}.command.Create{{Entity}}Command;
@@ -24,10 +24,10 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/api/{{context}}")
 public class {{Entity}}Controller {
 
-    private final {{Context}}CommandInvoker commandInvoker;
+    private final CommandInvoker commandInvoker;
     private final QueryInvoker queryInvoker;
 
-    public {{Entity}}Controller({{Context}}CommandInvoker commandInvoker,
+    public {{Entity}}Controller(CommandInvoker commandInvoker,
                                 QueryInvoker queryInvoker) {
         this.commandInvoker = commandInvoker;
         this.queryInvoker = queryInvoker;

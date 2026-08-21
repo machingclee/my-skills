@@ -1,5 +1,6 @@
 package {{basePackage}}.common.jpa.entity.{{context}};
 
+import com.machingclee.domain.util.annotation.BoundedContext;
 import com.machingclee.domain.util.common.interfaces.AuditEvent;
 import jakarta.persistence.*;
 import lombok.AccessLevel;
@@ -12,6 +13,7 @@ import lombok.Setter;
  * Audit trail for commands and domain events.
  * Adjust catalog/schema on {@link Table} for your database layout.
  */
+@BoundedContext("{{BoundedContextName}}")
 @Getter
 @Setter
 @NoArgsConstructor
