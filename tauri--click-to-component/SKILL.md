@@ -52,6 +52,7 @@ Copy from `templates/` in this skill folder:
 ```rust
 #[tauri::command]
 async fn open_in_vscode(app: tauri::AppHandle, path: String) -> Result<(), String> {
+    let path = path.replace('\\', "/");
     let url = if path.starts_with('/') {
         format!("vscode://file{}", path)
     } else {
@@ -82,11 +83,13 @@ filesystem paths. In `vite.config.ts`:
 ```ts
 export default defineConfig(() => ({
     define: {
-        __VITE_ROOT__: JSON.stringify(process.cwd()),
+        __VITE_ROOT__: JSON.stringify(process.cwd().replace(/\\/g, "/")),
     },
     // ...
 }));
 ```
+
+Forward slashes are required: Windows `C:\proj` concatenated with Vite's `/src/App.tsx` produces a mixed path VS Code will not open.
 
 TypeScript needs the declaration in the component (already in the template):
 `declare const __VITE_ROOT__: string;`
@@ -122,20 +125,35 @@ It renders `null`; all behavior is global window listeners. Requires
    This is what maps a low-level DOM node (e.g. a `<div>`) to the user component
    that wrote it.
 4. **Convert to absolute path**: `new URL(filePath)`; if `hostname === "localhost"`
-   strip the query string and prepend `__VITE_ROOT__`; keep if already `/`-absolute.
+   strip the query string and prepend `__VITE_ROOT__`; if `file:` decode the
+   pathname (strip the extra `/` before `C:` on Windows); keep if already
+   `/`-absolute or a `C:\` / `C:/` drive path.
 5. **Invoke Rust**: `invoke("open_in_vscode", { path: "/abs/File.tsx:12:3" })`.
 
 ## Component behavior (what the template does)
 
-- **Alt held** (`keydown`/`keyup`) → hover mode on.
-- **`mousemove`** tracks the hovered element and marks it `data-ctc-target`.
+- **Alt held** → hover mode on. Detect it from **`mousemove`/`click` `e.altKey`**,
+  not only `keydown`/`keyup`. Unfocused and `focusable: false` Tauri windows
+  never receive key events; mouse events still report the physical Alt key.
+- **`mousemove`** tracks the hovered element. On every `target` change, **strip
+  `data-ctc-target` from every element that isn't the current target**, then
+  set it on the current one. The attribute is sticky — adding it without
+  clearing the previous node leaves every hovered element outlined.
+- **`mousedown` / `selectstart`** (capture) `preventDefault()` while Alt is
+  held, plus `user-select: none` on `[data-ctc-hover]`, so Alt-drag does not
+  start a native text selection (looks like multi-select).
 - **`click`** (registered with `{ capture: true }`, then `preventDefault()` +
   `stopPropagation()` so app handlers never see it) → resolve + invoke.
+  Accept `e.altKey` even if hover state missed keydown.
 - **`blur`** (window loses focus) exits hover mode.
 - Injects one `<style id="tauri-click-to-component-style">`:
 
   ```css
-  [data-ctc-hover] * { pointer-events: auto !important; }
+  [data-ctc-hover],
+  [data-ctc-hover] * {
+    pointer-events: auto !important;
+    user-select: none !important;
+  }
   [data-ctc-target] {
     cursor: context-menu !important;
     outline: -webkit-focus-ring-color auto 1px !important;
@@ -174,6 +192,14 @@ It renders `null`; all behavior is global window listeners. Requires
   listeners; double-mounting just re-registers the same handlers.
 - If the app has a global link interceptor that calls `e.preventDefault()` on
   all clicks, the capture-phase listener here still fires first, so it works.
+- **Highlight must be exclusive.** `data-ctc-target` is a sticky data attribute.
+  If you only add it on the new node and only remove it when hover mode ends,
+  every element the pointer crossed stays outlined.
+- **Don't rely on keydown for Alt.** Overlays and `focusable: false` windows
+  never get keyboard events. `MouseEvent.altKey` is the reliable signal.
+- **Windows paths.** `__VITE_ROOT__` must use forward slashes; the Rust command
+  must `replace('\\', "/")` before building `vscode://file/...`. Drive-letter
+  and `file:` URLs must be accepted in `toAbsolutePath`, not only `/`-absolute.
 
 ## Do not
 
