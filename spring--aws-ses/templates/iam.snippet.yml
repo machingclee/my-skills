@@ -1,0 +1,15 @@
+# Merge into serverless.yml under provider.iam.role.statements
+# (or the equivalent IAM policy on a non-Serverless Lambda / ECS task role).
+# Required so SesClient.sendEmail succeeds; missing this surfaces as AccessDenied,
+# not as a Spring wiring error.
+#
+# Resource "*" matches the comment-system reference. SES SendEmail does not
+# always accept a tidy identity ARN; tighten later if the account requires it.
+iam:
+  role:
+    statements:
+      - Effect: Allow
+        Action:
+          - ses:SendEmail
+          - ses:SendRawEmail
+        Resource: "*"

@@ -1,0 +1,9 @@
+# Merge into application.yml under the existing `app:` key (do not nest a second `app:`).
+# from-address MUST be a verified SES identity in `region`.
+# Sandbox: every To/CC/BCC recipient must also be verified.
+# Override per environment via SES_REGION / SES_FROM_ADDRESS / SES_CC_ADDRESSES.
+app:
+  ses:
+    region: ${SES_REGION:ap-northeast-1}
+    from-address: ${SES_FROM_ADDRESS:noreply@example.com}
+    cc-addresses: ${SES_CC_ADDRESSES:}
