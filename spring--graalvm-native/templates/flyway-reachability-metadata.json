@@ -1,0 +1,76 @@
+{
+  "comment": "Flyway 11 copies ConfigurationExtension beans via Jackson (ConfigurationExtension.copy). Merge this reflection array into src/main/resources/META-INF/native-image/reachability-metadata.json. Do not duplicate into reflect-config.json.",
+  "reflection": [
+    {
+      "type": "org.flywaydb.core.internal.configuration.extensions.PrepareScriptFilenameConfigurationExtension",
+      "allPublicConstructors": true,
+      "allDeclaredFields": true,
+      "allPublicMethods": true
+    },
+    {
+      "type": "org.flywaydb.core.internal.configuration.extensions.DeployScriptFilenameConfigurationExtension",
+      "allPublicConstructors": true,
+      "allDeclaredFields": true,
+      "allPublicMethods": true
+    },
+    {
+      "type": "org.flywaydb.core.internal.publishing.PublishingConfigurationExtension",
+      "allPublicConstructors": true,
+      "allDeclaredFields": true,
+      "allPublicMethods": true
+    },
+    {
+      "type": "org.flywaydb.core.internal.command.clean.CleanModeConfigurationExtension",
+      "allPublicConstructors": true,
+      "allDeclaredFields": true,
+      "allPublicMethods": true
+    },
+    {
+      "type": "org.flywaydb.core.internal.command.clean.CleanModeConfigurationExtension$Mode",
+      "allPublicMethods": true,
+      "allDeclaredFields": true
+    },
+    {
+      "type": "org.flywaydb.core.internal.command.clean.CleanModel",
+      "allPublicConstructors": true,
+      "allDeclaredFields": true,
+      "allPublicMethods": true
+    },
+    {
+      "type": "org.flywaydb.core.internal.command.clean.SchemaModel",
+      "allPublicConstructors": true,
+      "allDeclaredFields": true,
+      "allPublicMethods": true
+    },
+    {
+      "type": "org.flywaydb.core.api.migration.baseline.BaselineMigrationConfigurationExtension",
+      "allPublicConstructors": true,
+      "allDeclaredFields": true,
+      "allPublicMethods": true
+    },
+    {
+      "type": "org.flywaydb.core.internal.proprietaryStubs.OfflinePermitConfigurationExtensionStub",
+      "allPublicConstructors": true,
+      "allDeclaredFields": true,
+      "allPublicMethods": true
+    },
+    {
+      "type": "org.flywaydb.core.internal.proprietaryStubs.PATTokenConfigurationExtensionStub",
+      "allPublicConstructors": true,
+      "allDeclaredFields": true,
+      "allPublicMethods": true
+    },
+    {
+      "type": "org.flywaydb.core.internal.proprietaryStubs.LicensingConfigurationExtensionStub",
+      "allPublicConstructors": true,
+      "allDeclaredFields": true,
+      "allPublicMethods": true
+    },
+    {
+      "type": "org.flywaydb.core.extensibility.ConfigurationParameter",
+      "allPublicConstructors": true,
+      "allDeclaredFields": true,
+      "allPublicMethods": true
+    }
+  ]
+}

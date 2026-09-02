@@ -1,0 +1,30 @@
+{
+  "comment": "H2 + Hibernate starters. Merge into reachability-metadata.json reflection[]; do not also add reflect-config.json for new work.",
+  "reflection": [
+    {
+      "type": "org.h2.Driver",
+      "allDeclaredConstructors": true,
+      "allPublicConstructors": true,
+      "allDeclaredMethods": true,
+      "allPublicMethods": true
+    },
+    {
+      "type": "org.h2.jdbc.JdbcConnection",
+      "allDeclaredConstructors": true,
+      "allDeclaredMethods": true
+    },
+    {
+      "type": "org.hibernate.dialect.H2Dialect",
+      "allDeclaredConstructors": true,
+      "allPublicConstructors": true,
+      "allDeclaredMethods": true
+    },
+    {
+      "type": "org.hibernate.generator.internal.GeneratedGeneration",
+      "allDeclaredConstructors": true,
+      "allPublicConstructors": true,
+      "allDeclaredMethods": true,
+      "allPublicMethods": true
+    }
+  ]
+}
