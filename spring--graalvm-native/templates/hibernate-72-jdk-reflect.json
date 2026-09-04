@@ -1,5 +1,5 @@
 {
-  "comment": "Kotlin-reflect / Spring Data KotlinBeanInfoFactory call Parameter.getName(). Jackson kotlin module introspects emptyList() as kotlin.collections.EmptyList. Merge into reachability-metadata.json. Pair with kotlin compilerArgs -java-parameters.",
+  "comment": "Kotlin-reflect Parameter.getName(); Jackson EmptyList; springdoc RecordComponent.getAccessor + Class.isRecord/getRecordComponents; java.beans Introspector. Merge into reachability-metadata.json. Pair with -java-parameters. Concrete library records (FlowResponseDTO) are NOT in this file: extract with javap.",
   "reflection": [
     {
       "type": "java.lang.reflect.Parameter",
@@ -72,6 +72,34 @@
       "allPublicMethods": true,
       "allDeclaredFields": true,
       "allPublicFields": true
+    },
+    {
+      "type": "java.lang.reflect.RecordComponent",
+      "allDeclaredConstructors": true,
+      "allPublicConstructors": true,
+      "allDeclaredMethods": true,
+      "allPublicMethods": true,
+      "allDeclaredFields": true
+    },
+    {
+      "type": "java.lang.Class",
+      "methods": [
+        { "name": "isRecord", "parameterTypes": [] },
+        { "name": "getRecordComponents", "parameterTypes": [] }
+      ]
+    },
+    {
+      "type": "java.beans.Introspector",
+      "allPublicMethods": true
+    },
+    {
+      "type": "java.beans.BeanInfo",
+      "allPublicMethods": true
+    },
+    {
+      "type": "java.beans.PropertyDescriptor",
+      "allPublicConstructors": true,
+      "allPublicMethods": true
     }
   ]
 }

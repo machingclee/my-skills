@@ -9,7 +9,8 @@ description: >-
   diagnose AotInitializerNotFoundException, image-heap ProcessRunner, Flyway
   MissingReflectionRegistrationError, and Hibernate 7.2 native crashes
   (JpaLogger_$logger, DynamicInsertAnnotation, EventListener[], Parameter.getName,
-  HibernateProxy/BytecodeProvider=none, kotlin.collections.EmptyList).
+  HibernateProxy/BytecodeProvider=none, kotlin.collections.EmptyList,
+  RecordComponent.getAccessor, Java record getRecordComponents).
   Use when the user wants a GraalVM native image, nativeCompile, native-image,
   AOT-processed Spring Boot executable, bundled desktop/Tauri backend binary, or
   help with native-image reflection / reachability metadata / Flyway / Hibernate
@@ -20,7 +21,9 @@ description: >-
   "reflect-config.json", "GraalVM 25", "bundle backend-native", "Flyway native
   image", "initialize-at-build-time ProcessRunner", "JpaLogger",
   "Invalid logger interface", "entityManagerFactory", "Hibernate 7.2 native",
-  "HibernateProxy", "BytecodeProvider is 'none'", "EmptyList".
+  "HibernateProxy", "BytecodeProvider is 'none'", "EmptyList",
+  "getAccessor", "Record components not available", "FlowResponseDTO",
+  "/v3/api-docs", "/docs/commands".
 ---
 
 # Spring Boot → GraalVM native executable
@@ -46,8 +49,9 @@ user asks to:
 - fix `AotInitializerNotFoundException`, `MissingReflectionRegistrationError`,
   “object found in the image heap”, `Invalid logger interface …JpaLogger`,
   `DynamicInsertAnnotation.<init>`, `PreFlushEventListener[]`,
-  `Parameter.getName()`, `HibernateProxy` / `BytecodeProvider is 'none'`, or
-  `kotlin.collections.EmptyList`
+  `Parameter.getName()`, `HibernateProxy` / `BytecodeProvider is 'none'`,
+  `kotlin.collections.EmptyList`, `RecordComponent.getAccessor`, or
+  `Record components not available for record class`
 - explain or edit `reachability-metadata.json` vs `reflect-config.json`
 - wire `org.graalvm.buildtools.native` into an existing Boot 4 app
 
@@ -240,8 +244,9 @@ Native Build Tools **0.11.1** reachability metadata stops at
 
 Do **not** register only `JpaLogger_$logger`. After metadata is complete, first
 **request** traffic still fails: lazy `@ManyToOne` needs `HibernateProxy`, then
-Jackson’s Kotlin module needs `EmptyList`. Full playbook:
-`references/hibernate-72-native.md`.
+Jackson’s Kotlin module needs `EmptyList`, then springdoc needs
+`RecordComponent.getAccessor()`, then library Java records need every accessor
+registered. Full playbook: `references/hibernate-72-native.md`.
 
 1. Resolve the **actual** `hibernate-core` jar (not the 7.1 metadata zip).
 2. Run `templates/extract-hibernate-72-metadata.py <jar>` and **merge**
@@ -252,8 +257,12 @@ Jackson’s Kotlin module needs `EmptyList`. Full playbook:
 4. Kotlin: `freeCompilerArgs.add("-java-parameters")`.
 5. Set every `@ManyToOne` / `@OneToOne` to `FetchType.EAGER` (collections may
    stay `LAZY`). Do not re-enable ByteBuddy in native.
-6. Rebuild **native** and curl **`/health` plus a JPA JSON endpoint** (empty
-   lists). `/health` alone misses HibernateProxy and EmptyList.
+6. If the app ships springdoc or Java records, merge
+   `RecordComponent` / `Class.isRecord` / `getRecordComponents` from the JDK
+   template, then extract **all** `extends java.lang.Record` types from library
+   jars (`javap`) and register each whole type (not only `RecordComponent`).
+7. Rebuild **native** and curl `/health`, a JPA JSON list, `/v3/api-docs`, and
+   any `/docs/commands`-style record payload. `/health` alone misses later gaps.
 
 Register the generated `Foo_$logger` class, not only the `Foo` interface.
 Annotation wrappers need **declared** constructors
@@ -300,7 +309,9 @@ only for types the error names; do not blanket-init Spring.
    ```bash
    ./build/native/nativeCompile/<imageName> --server.port=7070
    curl -sf http://127.0.0.1:7070/health
-   curl -sf http://127.0.0.1:7070/folders   # or any JPA list JSON; /health is not enough
+   curl -sf http://127.0.0.1:7070/folders        # JPA + emptyList(); /health is not enough
+   curl -sf http://127.0.0.1:7070/v3/api-docs    # springdoc RecordComponent.getAccessor
+   curl -sf http://127.0.0.1:7070/docs/commands  # Java record getRecordComponents
    ```
 8. Confirm `strings <binary> | grep Java.Version` → `25`.
 9. If it dies, **read the process stdout/stderr** (a wrapper must pipe them;
@@ -325,6 +336,7 @@ A production wrapper **must** fail if Graal 25 is missing — copy
 | `Generation of HibernateProxy instances at runtime is not allowed when the configured BytecodeProvider is 'none'` | Native image disables ByteBuddy. Lazy `@ManyToOne` / `@OneToOne` need a runtime subclass proxy. Lazy collections (`@OneToMany`) are fine (`PersistentSet`). | Set to-one `fetch = FetchType.EAGER` (JPA default), or build-time enhancement + `@ConcreteProxy`. Do not try to re-enable ByteBuddy in native. |
 | `KotlinReflectionInternalError: Unresolved class: class kotlin.collections.EmptyList` under Jackson kotlin module | `emptyList()` serializes as `EmptyList`; kotlin-reflect cannot resolve it unless registered | Register `kotlin.collections.EmptyList` / `EmptySet` / `EmptyMap` / `EmptyIterator` in `reachability-metadata.json` |
 | Swagger UI `Failed to load API definition` / `GET /v3/api-docs` `NoSuchMethodError: Can't find getAccessor method` | springdoc `MethodParameterPojoExtractor` and kotlin-reflect call `java.lang.reflect.RecordComponent.getAccessor()` plus `Class.isRecord` / `getRecordComponents` | Register `java.lang.reflect.RecordComponent` (all public/declared methods) and `Class.isRecord` / `Class.getRecordComponents`. Also `java.beans.Introspector` / `BeanInfo` / `PropertyDescriptor`. Rebuild native. `/health` and `/folders` can already be 200. |
+| `UnsupportedFeatureError: Record components not available for record class … All record component accessor methods of this record class must be included in the reflection configuration` | GraalVM 25 will not call `Class.getRecordComponents()` unless **every** accessor of that record is registered. Nested record DTOs (domain-util `FlowResponseDTO`) fail one type at a time. | Register the **whole record type** (`allDeclaredConstructors`, `allPublicMethods`, `allDeclaredFields`, `allRecordComponents` if the metadata format accepts it) **and** every nested record it returns. Extract records from the jar with `javap` (`extends java.lang.Record`). |
 | Native binary starts then `/health` connection refused | Process **exited**. Logs are on stdout | Capture stdout/stderr; do not debug port binding first |
 | `SqliteJdbcFeature class not found` | Fat/shaded JAR dropped multi-release classes | Native-image exploded classpath, not a fat JAR |
 | Logback “Could NOT find resource [logback.xml]” then Boot banner | Usually harmless (basic configurator). Real failure is the next exception | Keep reading |
@@ -363,5 +375,10 @@ must surface the chosen port.
 - Do not treat a green `bootRun` as proof the native sidecar will start.
 - Do not treat a green native `/health` as proof JPA works. Hit an endpoint that
   loads a lazy to-one and serializes `emptyList()`.
+- Do not treat green `/folders` as proof swagger or `/docs/commands` works.
 - Do not re-enable ByteBuddy / a runtime `BytecodeProvider` in native. Change
   `@ManyToOne`/`@OneToOne` to `EAGER` instead.
+- Do not register only `java.lang.reflect.RecordComponent` and stop. GraalVM 25
+  still requires **every accessor** of each concrete record type
+  (`FlowResponseDTO` and nested records). Extract with `javap`
+  (`extends java.lang.Record`).

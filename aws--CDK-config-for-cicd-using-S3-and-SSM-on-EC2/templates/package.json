@@ -1,0 +1,27 @@
+{
+  "name": "cdk-ec2-deploy-infra",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "watch": "tsc -p tsconfig.json -w",
+    "list:dev": "cdk list -c stage=dev",
+    "list:prod": "cdk list -c stage=prod",
+    "synth:dev": "cdk synth -c stage=dev",
+    "synth:prod": "cdk synth -c stage=prod",
+    "diff:dev": "cdk diff -c stage=dev",
+    "diff:prod": "cdk diff -c stage=prod",
+    "deploy:dev": "cdk deploy --require-approval never -c stage=dev",
+    "deploy:prod": "cdk deploy --require-approval never -c stage=prod"
+  },
+  "devDependencies": {
+    "@types/node": "^26.2.0",
+    "aws-cdk": "^2.1100.1",
+    "ts-node": "^10.9.1",
+    "typescript": "^5.1.6"
+  },
+  "dependencies": {
+    "aws-cdk-lib": "^2.0.0",
+    "constructs": "^10.0.0"
+  }
+}

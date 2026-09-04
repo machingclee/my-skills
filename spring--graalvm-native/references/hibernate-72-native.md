@@ -35,6 +35,7 @@ before the long `nativeCompile`:
 | 5 | `Generation of HibernateProxy instances at runtime is not allowed when the configured BytecodeProvider is 'none'` | Native image disables ByteBuddy. Lazy `@ManyToOne` / `@OneToOne` need a runtime subclass. Set those to `FetchType.EAGER` (collections can stay `LAZY`). Do not re-enable ByteBuddy. |
 | 6 | `KotlinReflectionInternalError: Unresolved class: class kotlin.collections.EmptyList` (Jackson kotlin module, HTTP 500 on list JSON) | `emptyList()` is the singleton `EmptyList`. Register `EmptyList` / `EmptySet` / `EmptyMap` / `EmptyIterator`. Copy `templates/hibernate-72-jdk-reflect.json`. |
 | 7 | Swagger `GET /v3/api-docs` `NoSuchMethodError: Can't find getAccessor method` | springdoc `MethodParameterPojoExtractor` calls `RecordComponent.getAccessor()`. Register `java.lang.reflect.RecordComponent` plus `Class.isRecord` / `getRecordComponents`. |
+| 8 | `UnsupportedFeatureError: Record components not available for record class com.machingclee.domain.util.common.dto.FlowResponseDTO` | Register **all** Java records returned by `/docs/commands` (and nested records), not only `RecordComponent`. Extract with `javap` (`extends java.lang.Record`) from the library jar. |
 
 The JpaLogger error is **not** a Logback problem. Keep reading past
 “Could NOT find resource [logback.xml]”.
@@ -116,6 +117,60 @@ Also merge the `EmptyList` / `EmptySet` / `EmptyMap` / `EmptyIterator` entries
 from the same template. Jackson’s Kotlin module calls
 `KClassImpl` on `emptyList()` when serializing a DTO list field.
 
+## Springdoc `getAccessor` and Java records
+
+`/health` and `/folders` can already be 200 while Swagger UI still fails.
+
+### `RecordComponent.getAccessor`
+
+```
+NoSuchMethodError: Can't find `getAccessor` method
+  at org.springdoc.core.extractor.MethodParameterPojoExtractor
+```
+
+springdoc walks types with `Class.isRecord()` / `Class.getRecordComponents()`
+then `RecordComponent.getAccessor()`. Register those JDK APIs
+(`templates/hibernate-72-jdk-reflect.json`). Also register
+`java.beans.Introspector` / `BeanInfo` / `PropertyDescriptor`.
+
+### Concrete record types (`getRecordComponents`)
+
+```
+UnsupportedFeatureError: Record components not available for record class
+com.machingclee.domain.util.common.dto.FlowResponseDTO.
+All record component accessor methods of this record class must be included
+in the reflection configuration at image build time
+```
+
+Registering `RecordComponent` is **not** enough. GraalVM 25 refuses
+`Class.getRecordComponents()` unless **every accessor** of that **concrete**
+record is registered. Nested records fail one type at a time
+(`FlowResponseDTO` then `CommandEventFlowDTO` then …).
+
+Extract from the library jar (include inner classes with `$`):
+
+```bash
+javap -public -classpath domain-util-0.2.6.jar <fqcn>
+# keep types whose javap output contains: extends java.lang.Record
+```
+
+Register each whole type:
+
+```json
+{
+  "type": "com.machingclee.domain.util.common.dto.FlowResponseDTO",
+  "allDeclaredConstructors": true,
+  "allPublicConstructors": true,
+  "allDeclaredMethods": true,
+  "allPublicMethods": true,
+  "allDeclaredFields": true,
+  "allPublicFields": true,
+  "allRecordComponents": true
+}
+```
+
+`/docs/commands` is the smoke test for this gap, not `/v3/api-docs`.
+
 ## HibernateProxy (`BytecodeProvider=none`)
 
 Native image **cannot** generate `HibernateProxy` subclasses. This is **not** a
@@ -136,7 +191,9 @@ back on in the native binary.
 ./gradlew nativeCompile
 ./build/native/nativeCompile/<imageName> --server.port=7070
 curl -sf http://127.0.0.1:7070/health
-curl -sf http://127.0.0.1:7070/folders   # JPA + empty lists; /health is not enough
+curl -sf http://127.0.0.1:7070/folders        # JPA + emptyList()
+curl -sf http://127.0.0.1:7070/v3/api-docs    # springdoc getAccessor
+curl -sf http://127.0.0.1:7070/docs/commands  # Java record accessors
 ```
 
 A JVM run will not show these gaps. After a metadata **or entity fetch-type**

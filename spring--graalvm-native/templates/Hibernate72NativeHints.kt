@@ -58,6 +58,31 @@ class Hibernate72NativeHints : RuntimeHintsRegistrar {
                 MemberCategory.DECLARED_FIELDS
             )
         }
+
+        // springdoc MethodParameterPojoExtractor: RecordComponent.getAccessor()
+        hints.reflection().registerType(
+            TypeReference.of("java.lang.reflect.RecordComponent"),
+            MemberCategory.INVOKE_DECLARED_CONSTRUCTORS,
+            MemberCategory.INVOKE_PUBLIC_METHODS,
+            MemberCategory.INVOKE_DECLARED_METHODS,
+            MemberCategory.DECLARED_FIELDS
+        )
+        hints.reflection().registerType(
+            TypeReference.of("java.lang.Class"),
+            MemberCategory.INVOKE_DECLARED_METHODS,
+            MemberCategory.INVOKE_PUBLIC_METHODS
+        )
+        listOf(
+            "java.beans.Introspector",
+            "java.beans.BeanInfo",
+            "java.beans.PropertyDescriptor",
+        ).forEach { name ->
+            hints.reflection().registerType(
+                TypeReference.of(name),
+                MemberCategory.INVOKE_PUBLIC_METHODS,
+                MemberCategory.INVOKE_DECLARED_CONSTRUCTORS
+            )
+        }
     }
 
     companion object {
