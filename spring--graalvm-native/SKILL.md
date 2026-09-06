@@ -7,7 +7,8 @@ description: >-
   closed-world metadata in reachability-metadata.json (not the old
   reflect-config.json), keep unused JDBC drivers off the native classpath, and
   diagnose AotInitializerNotFoundException, image-heap ProcessRunner, Flyway
-  MissingReflectionRegistrationError, and Hibernate 7.2 native crashes
+  MissingReflectionRegistrationError, native-image exit 137 / SIGKILL (OOM),
+  and Hibernate 7.2 native crashes
   (JpaLogger_$logger, DynamicInsertAnnotation, EventListener[], Parameter.getName,
   HibernateProxy/BytecodeProvider=none, kotlin.collections.EmptyList,
   RecordComponent.getAccessor, Java record getRecordComponents).
@@ -23,7 +24,8 @@ description: >-
   "Invalid logger interface", "entityManagerFactory", "Hibernate 7.2 native",
   "HibernateProxy", "BytecodeProvider is 'none'", "EmptyList",
   "getAccessor", "Record components not available", "FlowResponseDTO",
-  "/v3/api-docs", "/docs/commands".
+  "/v3/api-docs", "/docs/commands", "exit 137", "native-image OOM",
+  "NumberOfThreads", "Parsing methods".
 ---
 
 # Spring Boot → GraalVM native executable
@@ -274,7 +276,6 @@ with no extra flags.
 Minimum set that has been needed for Boot + Logback + HTTP:
 
 ```
---verbose
 -H:+ReportExceptionStackTraces
 --initialize-at-run-time=ch.qos.logback
 --initialize-at-run-time=org.slf4j.LoggerFactory
@@ -282,6 +283,48 @@ Minimum set that has been needed for Boot + Logback + HTTP:
 -H:+AddAllCharsets
 -H:EnableURLProtocols=http,https
 ```
+
+Do **not** add `--verbose` by default — it inflates builder RAM.
+
+### Builder RAM (exit 137 / SIGKILL)
+
+`native-image` is a **build-time** JVM, not the app. It defaults to **all
+CPU cores**. Spring Boot 4 + JPA + Flyway commonly peaks **5–8GB** at
+`[4/8] Parsing methods`. On a laptop that is already swapping, the kernel
+kills it: Gradle reports `finished with non-zero exit value 137`.
+
+That is **not** a compile error, AOT metadata miss, or Flyway failure.
+
+Cap it in `graalvmNative { binaries.named("main") { buildArgs } }` (same
+block as the flags above; Gradle `buildArgs.add` is how Boot projects pass
+`native-image` options):
+
+```
+-H:NumberOfThreads=4
+-J-Xms2g
+-J-Xmx6g
+```
+
+| Flag | What it is | Typical |
+|---|---|---|
+| `-H:NumberOfThreads=N` | Graal analysis parallelism (HostedOption) | 4; drop to 2 if still 137 |
+| `-J-Xms` / `-J-Xmx` | Heap of the **builder JVM** (`-J` = pass to java) | 2g / 6g on a 16–32GB Mac |
+| `--verbose` | Extra logging; costs RAM | omit unless diagnosing |
+
+Maven (`native-maven-plugin`):
+
+```xml
+<buildArgs>
+  <buildArg>-H:NumberOfThreads=4</buildArg>
+  <buildArg>-J-Xmx6g</buildArg>
+</buildArgs>
+```
+
+CLI: `native-image -H:NumberOfThreads=4 -J-Xmx6g …`
+
+Also: `./gradlew nativeCompile --no-daemon` (a leftover daemon + Chrome +
+the builder compete for the same unified memory). Quit heavy apps first.
+Still 137 → 2 threads / `-J-Xmx4g`. Slower is expected.
 
 Logback `StatusBase` / `Logger` often also need `--initialize-at-run-time`
 (see `templates/native-image.properties`). Add new `--initialize-at-run-time`
@@ -338,6 +381,7 @@ A production wrapper **must** fail if Graal 25 is missing — copy
 | Swagger UI `Failed to load API definition` / `GET /v3/api-docs` `NoSuchMethodError: Can't find getAccessor method` | springdoc `MethodParameterPojoExtractor` and kotlin-reflect call `java.lang.reflect.RecordComponent.getAccessor()` plus `Class.isRecord` / `getRecordComponents` | Register `java.lang.reflect.RecordComponent` (all public/declared methods) and `Class.isRecord` / `Class.getRecordComponents`. Also `java.beans.Introspector` / `BeanInfo` / `PropertyDescriptor`. Rebuild native. `/health` and `/folders` can already be 200. |
 | `UnsupportedFeatureError: Record components not available for record class … All record component accessor methods of this record class must be included in the reflection configuration` | GraalVM 25 will not call `Class.getRecordComponents()` unless **every** accessor of that record is registered. Nested record DTOs (domain-util `FlowResponseDTO`) fail one type at a time. | Register the **whole record type** (`allDeclaredConstructors`, `allPublicMethods`, `allDeclaredFields`, `allRecordComponents` if the metadata format accepts it) **and** every nested record it returns. Extract records from the jar with `javap` (`extends java.lang.Record`). |
 | Native binary starts then `/health` connection refused | Process **exited**. Logs are on stdout | Capture stdout/stderr; do not debug port binding first |
+| `nativeCompile` / `native-image` **exit 137**, last log `[4/8] Parsing methods` at several GB | Kernel **SIGKILL** (OOM). Builder used all cores | `-H:NumberOfThreads=4 -J-Xmx6g`, drop `--verbose`, `--no-daemon`, free RAM. Not a source/Flyway bug |
 | `SqliteJdbcFeature class not found` | Fat/shaded JAR dropped multi-release classes | Native-image exploded classpath, not a fat JAR |
 | Logback “Could NOT find resource [logback.xml]” then Boot banner | Usually harmless (basic configurator). Real failure is the next exception | Keep reading |
 

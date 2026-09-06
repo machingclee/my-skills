@@ -1,0 +1,255 @@
+.focus-strip,
+.focus-strip-toolbox,
+.focus-strip-overlay,
+.focus-strip-viewport {
+  --focus-strip-veil: rgba(8, 8, 8, 0.7);
+  --focus-strip-edge: rgba(128, 128, 128, 0.9);
+  --focus-strip-edge-strong: #808080;
+  --focus-strip-accent: #808080;
+  --focus-strip-text: inherit;
+  --focus-strip-muted: color-mix(in srgb, currentColor 62%, transparent);
+  --focus-strip-bg: color-mix(in srgb, canvas 88%, transparent);
+  --focus-strip-line: color-mix(in srgb, currentColor 12%, transparent);
+  --focus-strip-active: color-mix(in srgb, var(--focus-strip-accent) 22%, transparent);
+}
+
+.focus-strip {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  height: 100%;
+  color: var(--focus-strip-text);
+}
+
+.focus-strip-toolbox {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 8px 10px;
+  flex: 0 0 auto;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--focus-strip-line);
+  background: var(--focus-strip-bg);
+  backdrop-filter: blur(12px);
+  user-select: none;
+  line-height: 1;
+}
+
+.focus-strip-toolbox button {
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 24px;
+  font: inherit;
+  line-height: 1;
+  color: inherit;
+  background: transparent;
+  border: 1px solid var(--focus-strip-line);
+  border-radius: 8px;
+  padding: 0 10px;
+  cursor: pointer;
+}
+
+.focus-strip-toolbox button:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--focus-strip-accent) 55%, var(--focus-strip-line));
+}
+
+.focus-strip-toolbox button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.focus-strip-toolbox button[aria-pressed="true"] {
+  background: var(--focus-strip-active);
+  border-color: var(--focus-strip-accent);
+}
+
+.focus-strip-height {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  height: 24px;
+  color: var(--focus-strip-muted);
+  font-size: 14px;
+  line-height: 1;
+}
+
+.focus-strip-height span,
+.focus-strip-height output {
+  display: inline-flex;
+  align-items: center;
+  height: 24px;
+  margin: 0;
+  padding: 0;
+  line-height: 1;
+}
+
+.focus-strip-height input[type="range"] {
+  box-sizing: border-box;
+  display: block;
+  width: min(140px, 28vw);
+  min-width: 64px;
+  height: 24px;
+  margin: 0;
+  padding: 0;
+  border: none;
+  align-self: center;
+  vertical-align: middle;
+  accent-color: #808080;
+  appearance: none;
+  -webkit-appearance: none;
+  background: transparent;
+}
+
+/* Full-height track so the 14px thumb sits on the same midline as the labels. */
+.focus-strip-height input[type="range"]::-webkit-slider-runnable-track {
+  height: 24px;
+  border-radius: 0;
+  background: linear-gradient(rgba(128, 128, 128, 0.38), rgba(128, 128, 128, 0.38))
+    no-repeat center / 100% 4px;
+}
+
+.focus-strip-height input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  margin-top: 5px; /* (24px track - 14px thumb) / 2 */
+  border: none;
+  border-radius: 50%;
+  background: #808080;
+}
+
+.focus-strip-height input[type="range"]::-moz-range-track {
+  height: 4px;
+  border: none;
+  border-radius: 999px;
+  background: rgba(128, 128, 128, 0.38);
+}
+
+.focus-strip-height input[type="range"]::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  border: none;
+  border-radius: 50%;
+  background: #808080;
+}
+
+.focus-strip-height output {
+  min-width: 4.5em;
+  justify-content: center;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.focus-strip-viewport {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.focus-strip-scroller {
+  height: 100%;
+  overflow: auto;
+}
+
+.focus-strip-overlay {
+  --hole-top: 0px;
+  --hole-height: 160px;
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 4;
+}
+
+.focus-strip-mask {
+  position: absolute;
+  left: 0;
+  right: 0;
+  background: var(--focus-strip-veil);
+  backdrop-filter: blur(var(--focus-strip-blur, 5px));
+  -webkit-backdrop-filter: blur(var(--focus-strip-blur, 5px));
+}
+
+.focus-strip-overlay > .focus-strip-mask:first-child {
+  top: 0;
+  height: max(0px, var(--hole-top));
+}
+
+.focus-strip-overlay > .focus-strip-mask:last-child {
+  top: calc(var(--hole-top) + var(--hole-height));
+  bottom: 0;
+}
+
+.focus-strip-band {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: var(--hole-top);
+  height: var(--hole-height);
+  pointer-events: auto;
+  cursor: grab;
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+  box-shadow:
+    inset 0 2px 0 var(--focus-strip-edge),
+    inset 0 -2px 0 var(--focus-strip-edge);
+}
+
+.focus-strip-band:hover {
+  box-shadow:
+    inset 0 3px 0 var(--focus-strip-edge-strong),
+    inset 0 -3px 0 var(--focus-strip-edge-strong);
+}
+
+.focus-strip-band.dragging,
+.focus-strip-band:active {
+  cursor: grabbing;
+}
+
+.focus-strip-edge {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: max(12px, min(18px, calc(var(--hole-height) / 3)));
+  pointer-events: auto;
+  cursor: ns-resize;
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.focus-strip-edge-top {
+  top: 0;
+}
+
+.focus-strip-edge-bottom {
+  bottom: 0;
+}
+
+.focus-strip-edge:hover,
+.focus-strip-edge.dragging {
+  background: linear-gradient(
+    to bottom,
+    color-mix(in srgb, var(--focus-strip-edge-strong) 55%, transparent),
+    transparent 70%
+  );
+}
+
+.focus-strip-edge-bottom:hover,
+.focus-strip-edge-bottom.dragging {
+  background: linear-gradient(
+    to top,
+    color-mix(in srgb, var(--focus-strip-edge-strong) 55%, transparent),
+    transparent 70%
+  );
+}
+
+.focus-strip-overlay.resizing {
+  cursor: ns-resize;
+}

@@ -4,7 +4,12 @@ graalvmNative {
             imageName.set("backend-native") // change to the artifact name
             mainClass.set("com.example.ApplicationKt") // Java: com.example.Application
 
-            buildArgs.add("--verbose")
+            // native-image defaults to all cores. Spring + Hibernate + Flyway
+            // peaks several GB at "Parsing methods"; a 10-core Mac often gets
+            // SIGKILL / exit 137 (OOM). Cap threads + builder heap.
+            buildArgs.add("-H:NumberOfThreads=4")
+            buildArgs.add("-J-Xms2g")
+            buildArgs.add("-J-Xmx6g")
             buildArgs.add("-H:+ReportExceptionStackTraces")
 
             buildArgs.add("--initialize-at-run-time=ch.qos.logback")
