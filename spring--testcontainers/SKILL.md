@@ -40,10 +40,11 @@ Before writing any code, confirm the environment:
    ```
    Without `testcontainers.reuse.enable=true`, `withReuse(true)` is ignored and
    the container is removed when the test JVM exits.
-3. A schema file exists. This project uses `test-container/esales-schema.sql`
-   (a Prisma-generated MySQL schema). The configuration resolves it in order:
+3. A schema file exists. Prefer `test-container/schema.sql`
+   (a Prisma-generated MySQL schema, or any dump the tests need). The
+   configuration resolves it in order:
    system property `testcontainers.schema.file` → classpath `schema.sql` →
-   classpath `esales-schema.sql` → `test-container/esales-schema.sql`.
+   `test-container/schema.sql`.
 
 ## Files to Create
 
@@ -53,7 +54,7 @@ Create or update these files:
 2. `src/test/java/<base-package>/testcontainers/TestcontainersConfiguration.java`
 3. `src/test/java/<base-package>/testcontainers/BaseTest.java`
 4. `src/test/resources/application-test.yml`
-5. (optional) `test-container/esales-schema.sql` — the schema source.
+5. (optional) `test-container/schema.sql` — the schema source.
 
 ### 1. pom.xml Dependencies
 
@@ -110,7 +111,7 @@ The core class. Key design points:
   whole database is truncated instead.
 
 ```java
-package com.echarge.sales.testcontainers;
+package com.example.project.testcontainers;
 
 import com.github.dockerjava.api.model.ExposedPort;
 import com.github.dockerjava.api.model.PortBinding;
@@ -331,20 +332,20 @@ public class TestcontainersConfiguration {
             throw new IllegalStateException("Schema file from -D" + SCHEMA_FILE_PROPERTY + " not found: " + propertyPath);
         }
 
-        for (String classpath : new String[]{"schema.sql", "esales-schema.sql"}) {
+        for (String classpath : new String[]{"schema.sql"}) {
             ClassPathResource resource = new ClassPathResource(classpath);
             if (resource.exists()) {
                 return resource;
             }
         }
 
-        File projectSchema = new File("test-container", "esales-schema.sql");
+        File projectSchema = new File("test-container", "schema.sql");
         if (projectSchema.isFile()) {
             return new FileSystemResource(projectSchema);
         }
 
         throw new IllegalStateException(
-                "Schema file not found. Place it at test-container/esales-schema.sql, on the classpath as schema.sql, "
+                "Schema file not found. Place it at test-container/schema.sql, on the classpath as schema.sql, "
                         + "or point to it with -D" + SCHEMA_FILE_PROPERTY + "=...");
     }
     // endregion
@@ -393,7 +394,7 @@ activates the `test` profile, imports the container configuration, points the
 app datasource at the container, and wipes every table before each test method.
 
 ```java
-package com.echarge.sales.testcontainers;
+package com.example.project.testcontainers;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.springframework.boot.test.context.SpringBootTest;

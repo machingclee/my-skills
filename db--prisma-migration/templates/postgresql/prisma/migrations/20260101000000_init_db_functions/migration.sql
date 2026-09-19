@@ -1,6 +1,6 @@
 -- Bootstrap PostgreSQL helpers used as Prisma @default(dbgenerated(...)) values.
 -- Must run before any table migration that references these functions.
--- Source pattern: wonderbricks wb-backend-node (pgcrypto + ULID-as-UUID + HK timestamps).
+-- Source pattern: pgcrypto + ULID-as-UUID + HK timestamps.
 --
 -- Functions are created in the "{{schemaName}}" schema. Prisma Migrate does NOT
 -- create non-default schemas automatically, so the schema is created here first

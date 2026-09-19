@@ -9,7 +9,7 @@ description: >-
   migration that installs gen_created_at, gen_created_at_hk_timestr, and
   ulid_as_uuid. Use when the user wants to create a Prisma migration project,
   bootstrap a schema-only Prisma package, set up multi-environment migrate
-  scripts, clone a sales/wonderbricks schema layout, or start a new
+  scripts, clone a schema-only Prisma layout, or start a new
   prisma/migrations project.
 ---
 
@@ -20,8 +20,8 @@ Migrate. Two complete template trees ship with the skill:
 
 | Provider | Template root | Reference style |
 |---|---|---|
-| **MySQL** | `templates/mysql/` | echarge `schema/sales` (inline `dbgenerated` timestamps, `Int` autoincrement) |
-| **PostgreSQL** | `templates/postgresql/` | wonderbricks (custom SQL functions + UUID ULID PKs) |
+| **MySQL** | `templates/mysql/` | inline `dbgenerated` timestamps, `Int` autoincrement |
+| **PostgreSQL** | `templates/postgresql/` | custom SQL functions + UUID ULID PKs |
 
 **Always ask which SQL engine the user wants** (unless they already said so),
 then copy **only** that tree into the target directory.
@@ -37,7 +37,7 @@ Invoke this skill before writing project/bootstrap files when the user asks to:
 - "create a Prisma migration project" / "scaffold a schema package"
 - "set up multi-env Prisma migrate" / "local + dev + prod migrate scripts"
 - "new prisma migrations project for \<database\>"
-- "clone the sales schema layout" / "bootstrap like wonderbricks / schema/sales"
+- "clone a schema-only Prisma layout" / "bootstrap Prisma migrations"
 - start a dedicated Prisma package under a monorepo `schema/` (or similar) folder
 
 ## Inputs
@@ -192,8 +192,7 @@ Mirror these npm scripts exactly (already in both templates). They use
    - `gen_created_at_hk_timestr() → text` (`YYYY-MM-DD HH24:MI:SS` GMT+8)
    - `generate_ulid()`, `parse_ulid(text)`, `ulid_to_uuid(text)`, `ulid_as_uuid() → uuid`
 
-   Copied from the wonderbricks / wb-backend-node pattern. Do **not** omit this
-   folder when scaffolding PostgreSQL.
+   Do **not** omit this folder when scaffolding PostgreSQL.
 
 2. **Search_path trap — schema-qualify every internal call.** PL/pgSQL resolves
    unqualified names *inside* a function body against the **caller's session
@@ -207,7 +206,7 @@ Mirror these npm scripts exactly (already in both templates). They use
    qualifications away**, and if adding new helper functions to this migration,
    keep every internal call schema-qualified.
 
-4. **Naming:** `snake_case` preferred for new projects (wonderbricks legacy may use camelCase — do not mix styles inside one new package).
+4. **Naming:** `snake_case` preferred for new projects (do not mix camelCase and snake_case inside one new package).
 
 5. **PKs:** prefer
 

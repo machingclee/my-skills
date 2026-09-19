@@ -3,7 +3,7 @@
   Keep only the SES module (not the full AWS SDK uber-jar) — smaller Lambda packages.
 
   If the project already imports software.amazon.awssdk:bom in <dependencyManagement>,
-  omit the <version> on this dependency. Otherwise pin 2.31.50 (comment-system reference).
+  omit the <version> on this dependency. Otherwise pin 2.31.50.
 -->
 <dependency>
     <groupId>software.amazon.awssdk</groupId>

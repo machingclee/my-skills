@@ -21,8 +21,8 @@ This skill is the recipe for writing integration tests against Spring Boot
 bounded contexts whose commands run through the `CommandInvoker` from the
 `domain.util` library. Every invocation writes a command audit row plus one row
 per domain event into an `event` table, and every test asserts on those rows.
-The concrete reference implementation lives in the `web.sales` module
-(`com.echarge.sales.context.<ctx>`), with MySQL 8.4.8 Testcontainers; the
+A typical implementation lives in a bounded-context module
+(`com.example.project.context.<ctx>`), with MySQL 8.4.8 Testcontainers; the
 recipe generalizes to any context that exposes the same helpers.
 
 ## Mandatory Trigger
@@ -71,8 +71,8 @@ Every test class extends `CommandEventTest` (the helper base), which extends
 
 Copy the templates into your project, adjust the package names
 (`com.example.project` → your base package), and you are ready to write tests.
-The reference implementation in `web.sales` lives under
-`src/test/java/com/echarge/sales/testcontainerdb/` (`BaseTest.java`,
+Copy the templates into the target project under
+`src/test/java/<basePackage>/testcontainerdb/` (`BaseTest.java`,
 `CommandEventTest.java`, `TestcontainersConfiguration.java`).
 
 Notes on the templates:
@@ -415,7 +415,7 @@ To add a test for a specific policy invariant:
   gets its own Spring context, so group such tests together to avoid
   multiplying context starts. In the reference suite, booking tests replace
   `UserProfileService` and the Cloudflare `TransactionLock` because the
-  `echarge.user_info` table does not exist in the Testcontainer.
+  `user_info` table does not exist in the Testcontainer.
 - `DefaultCarModelCategoryApplicationRunner` writes audit rows at context
   startup; truncation wipes them before each test, so
   `eventRepository.findAll()` only sees the current test's rows.
@@ -432,7 +432,7 @@ To add a test for a specific policy invariant:
 User: "Add a test for StopSaleOfferCommand"
 
 Agent:
-  1. Reads src/main/java/com/echarge/sales/context/sales/command/StopSaleOfferCommand.java
+  1. Reads src/main/java/com/example/project/context/sales/command/StopSaleOfferCommand.java
      → builder fields: saleOfferIds (List<Integer>)
   2. Reads commandhandler/StopSaleOfferCommandHandler.java → emits
      SaleOfferStoppedEvent, turns every offer's onSale to false

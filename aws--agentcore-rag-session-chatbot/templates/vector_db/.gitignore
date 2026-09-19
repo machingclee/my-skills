@@ -1,0 +1,6 @@
+.venv/
+__pycache__/
+*.pyc
+chunks.pkl
+preprocessed_db/
+vector_db/

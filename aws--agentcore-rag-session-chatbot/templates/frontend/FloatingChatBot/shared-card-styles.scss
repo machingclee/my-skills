@@ -1,0 +1,101 @@
+// Shared card styles for portfolio cards and chatbot window
+// Ensures consistent design across the application
+
+// Card border styles
+$card-border-radius: 6px;
+$card-border-color: #cbd5e0;
+$card-border: 1px solid $card-border-color;
+$card-border-color-hover: #c7c7c7;
+
+// Card shadow styles
+$card-shadow-light: 
+  0 4px 12px -2px rgba(0, 0, 0, 0.05),
+  0 2px 4px -1px rgba(0, 0, 0, 0.03);
+
+$card-shadow-hover: 
+  0 12px 24px -4px rgba(0, 0, 0, 0.1),
+  0 6px 12px -2px rgba(0, 0, 0, 0.05);
+
+$card-shadow-elevated: 0 8px 24px rgba(0, 0, 0, 0.15);
+
+// Image effects
+$image-blur-default: 2px;
+$image-blur-hover: 0px;
+
+// Transition
+$card-transition: all 0.3s ease;
+
+// Colors
+$card-background: #ffffff;
+$border-light: #e2e8f0;
+$border-lighter: #ebebeb;
+
+// Code block styling (shared across Article and ChatBot)
+$inline-code-background: rgb(245, 242, 240);
+$inline-code-padding: 0.1em 0.4em;
+$inline-code-border-radius: 6px;
+
+$code-block-background: rgba(0, 0, 0, 0.05);
+$code-block-padding: 8px;
+$code-block-border-radius: 4px;
+$code-block-margin: 8px 0;
+
+// Mixin for card base styles
+@mixin card-base {
+  background: $card-background;
+  border-radius: $card-border-radius;
+  border: $card-border;
+  transition: $card-transition;
+  overflow: hidden;
+}
+
+// Mixin for card shadow
+@mixin card-shadow-default {
+  box-shadow: $card-shadow-light;
+}
+
+// Mixin for card hover state
+@mixin card-hover {
+  &:hover {
+    box-shadow: $card-shadow-hover;
+    border-color: $card-border-color-hover;
+  }
+}
+
+// Mixin for image blur effect
+@mixin image-blur-effect {
+  filter: blur($image-blur-default);
+  transition: filter 0.3s ease;
+
+  &:hover {
+    filter: blur($image-blur-hover);
+  }
+}
+
+// Mixin for markdown code styling
+@mixin markdown-code-styles {
+  // Style inline code only (not inside pre)
+  > p > code,
+  > code {
+    background-color: $inline-code-background;
+    padding: $inline-code-padding;
+    border-radius: $inline-code-border-radius;
+    font-size: 14px;
+    color: inherit;
+  }
+
+  // Remove background from code inside pre (syntax highlighted blocks)
+  pre code {
+    background: transparent !important;
+    padding: 0 !important;
+    border-radius: 0 !important;
+    
+    span {
+      background-color: transparent !important;
+    }
+    
+    span[class*="react-syntax-highlighter-line-number"] {
+      background: transparent !important;
+    }
+  }
+}

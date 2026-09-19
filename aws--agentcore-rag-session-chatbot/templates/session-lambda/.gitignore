@@ -1,0 +1,8 @@
+node_modules/
+dist/
+.serverless/
+.DS_Store
+*.log
+# Keep prod secrets local. Do not commit filled env JSON.
+# .env.local.json
+.env.prod.json

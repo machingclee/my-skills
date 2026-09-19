@@ -47,8 +47,8 @@ If the project has no `lucide-react`, either install it or swap the icons in the
 
 ## CSS design tokens used
 
-The CSS expects these custom properties (already present in the HKEV eSales
-`index.css` `@theme`). Map or define them in the target project:
+The CSS expects these custom properties (define them in the target project's
+`index.css` `@theme`, or map them to existing tokens):
 
 | Variable | Role |
 |----------|------|

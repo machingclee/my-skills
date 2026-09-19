@@ -6,7 +6,7 @@ description: >-
   files, Maven profiles, package.json env/schema-scoped scripts, baseline SQL,
   and README workflow. Use when the user wants to create a Flyway migration
   project, bootstrap schema migrations for multiple MySQL schemas, set up
-  local/dev/prod Flyway profiles, clone the echarge-and-ecapi layout, or start
+  local/dev/prod Flyway profiles, clone a multi-schema layout, or start
   a new Flyway project under a monorepo schema/ folder.
 ---
 
@@ -20,7 +20,8 @@ owns DDL for one or more MySQL schemas. Each schema gets:
 - its own `flyway_schema_history` table (via JDBC URL → schema)
 - conf files + Maven profiles for **local / dev / prod**
 
-Reference layout: `echarge-schema-migration/schema/echarge-and-ecapi`.
+Reference layout: one Maven package with independent per-schema folders
+(e.g. `schema/billing-and-orders`).
 
 The package is intentionally thin: no application code. It holds SQL migrations,
 Flyway confs, a Maven Flyway plugin, and npm scripts that wrap `mvn flyway:*`.
@@ -32,7 +33,7 @@ Invoke this skill before writing project/bootstrap files when the user asks to:
 - "create a Flyway migration project" / "scaffold Flyway schemas"
 - "set up multi-schema Flyway" / "local + dev + prod Flyway confs"
 - "new Flyway project for \<schema(s)\>"
-- "clone the echarge-and-ecapi layout" / "bootstrap like echarge Flyway"
+- "clone a multi-schema Flyway layout" / "bootstrap Flyway for two schemas"
 - start a dedicated Flyway package under a monorepo `schema/` (or similar) folder
 
 ## Inputs
@@ -56,7 +57,7 @@ Collect (or infer) before generating. **Ask for anything missing.**
 If `schemas` is not clear, ask. Support:
 
 1. **Single schema** — e.g. only `billing`
-2. **Multiple schemas** — e.g. `echarge` + `ecapi` (independent histories)
+2. **Multiple schemas** — e.g. `billing` + `orders` (independent histories)
 
 Normalize each name to a valid MySQL identifier (lowercase snake preferred).
 Confirm `targetDir` is empty or user accepts overwrite before writing.
@@ -193,7 +194,7 @@ npm run validate:local:<schema>
    schema (`jdbc:mysql://host:3306/<schema>?…`).
 2. **One history table per schema** — default name `flyway_schema_history`
    inside that schema.
-3. **Independent version streams** — `echarge/V1__…` and `ecapi/V1__…` do not
+3. **Independent version streams** — `billing/V1__…` and `orders/V1__…` do not
    conflict.
 4. **Locations are per profile** — never point two schemas at the same folder.
 5. **Out of order** stays `false`; `validateOnMigrate` stays `true` unless the
@@ -283,9 +284,8 @@ Env defaults for URL flags:
 ## Notes / gotchas
 
 - **Profile id consistency.** npm scripts and Maven `-P` must use the same ids
-  (`billing-local`, not `billing` vs `billing-local`). The historical echarge
-  package.json used short `-P echarge` while pom used `echarge-dev` — **do not
-  reproduce that drift** in new projects.
+  (`billing-local`, not `billing` vs `billing-local`). Do **not** let package.json
+  scripts use a short `-P billing` while the pom profile is `billing-dev`.
 - **Versions pinned in template:** Flyway `10.21.0`, `mysql-connector-j` `8.4.0`,
   Java 17. Bump only if the user asks.
 - **Database creation is out of band.** Flyway does not `CREATE DATABASE`; each

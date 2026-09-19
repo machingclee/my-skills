@@ -1,9 +1,9 @@
-import type { ESalesConfig } from './getConfig';
+import type { AppConfig } from './getConfig';
 
-export const config: ESalesConfig = {
+export const config: AppConfig = {
     tags: { Project: 'CHANGE_ME', Stage: 'dev', From: 'cdk' },
     env: { region: 'ap-east-1' },
-    serviceName: 'sales',
+    serviceName: 'app',
     vpc: {
         defaultVPC: { id: 'vpc-CHANGE_ME' },
         subnetId: 'subnet-CHANGE_ME',
@@ -19,6 +19,6 @@ export const config: ESalesConfig = {
     },
     s3: {
         deployBucket: { bucketName: 'CHANGE_ME-deploy-dev' },
-        deployPrefix: 'deploys/sales',
+        deployPrefix: 'deploys/app',
     },
 };

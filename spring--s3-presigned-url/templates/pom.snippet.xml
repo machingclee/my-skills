@@ -1,7 +1,7 @@
 <!--
   Merge into the project's <dependencies>. S3Presigner ships in the s3 artifact.
   If the project already imports the AWS SDK BOM (software.amazon.awssdk:bom),
-  omit the <version>; otherwise pin it (2.29.0 matches the echarge reference).
+  omit the <version>; otherwise pin it (2.29.0).
 -->
 <dependency>
     <groupId>software.amazon.awssdk</groupId>

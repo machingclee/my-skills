@@ -10,9 +10,9 @@ policies, and two stacks wired by cross-stack references.
 
 | Token / file | Where | What to set |
 |---|---|---|
-| `GITHUB_OWNER_REPO` | `lib/constructs/github-actions-deploy-role.ts` | CURRENT GitHub `owner/repo`, e.g. `Hong-Kong-EV-Power-Limited/echarge-java-modules`. A renamed repo keeps the old name in local `origin`; use the live name. |
+| `GITHUB_OWNER_REPO` | `lib/constructs/github-actions-deploy-role.ts` | CURRENT GitHub `owner/repo`, e.g. `OWNER/REPO`. A renamed repo keeps the old name in local `origin`; use the live name. |
 | `GITHUB_ENVIRONMENT` | `lib/constructs/github-actions-deploy-role.ts` | The GitHub environment declared on the workflow job, e.g. `production`. |
-| `serviceName` | `config/dev.ts` + `config/prod.ts` | systemd unit + `/opt/<name>` + role name prefix, e.g. `sales`. |
+| `serviceName` | `config/dev.ts` + `config/prod.ts` | systemd unit + `/opt/<name>` + role name prefix, e.g. `app`. |
 | Region / account | `config/*.ts` (`env.region`) | Account resolves from `CDK_DEFAULT_ACCOUNT`; confirm before `deploy`. |
 | `vpc`, `subnetId`, `availabilityZone` | `config/*.ts` | Where the EC2 instance is launched. |
 | `ec2.amiId`, `ec2.instanceType`, `keyPairNameForSSH` | `config/*.ts` | Instance image / size / optional SSH key. |

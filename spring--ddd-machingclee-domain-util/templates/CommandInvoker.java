@@ -1,5 +1,6 @@
 package {{basePackage}}.common.domainutils.{{context}};
 
+import com.machingclee.domain.util.common.audit.AuditConfiguration;
 import com.machingclee.domain.util.common.command.AbstractCommandInvoker;
 import com.machingclee.domain.util.common.interfaces.DomainEventDispatcher;
 import {{basePackage}}.common.jpa.entity.{{context}}.{{Context}}Event;
@@ -24,14 +25,16 @@ public class {{Context}}CommandInvoker extends AbstractCommandInvoker<{{Context}
             DomainEventDispatcher domainEventDispatcher,
             PlatformTransactionManager transactionManager,
             {{Context}}CommandAuditor auditor,
-            {{Context}}EventRepository eventRepository
+            {{Context}}EventRepository eventRepository,
+            AuditConfiguration auditConfiguration
     ) {
         super(
                 context,
                 domainEventDispatcher,
                 transactionManager,
                 auditor,
-                eventRepository
+                eventRepository,
+                auditConfiguration
         );
     }
 }

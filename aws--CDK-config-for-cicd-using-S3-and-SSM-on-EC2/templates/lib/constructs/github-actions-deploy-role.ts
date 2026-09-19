@@ -23,10 +23,10 @@ const GITHUB_OIDC_PROVIDER_HOST = 'token.actions.githubusercontent.com';
 const GITHUB_OIDC_AUDIENCE = 'sts.amazonaws.com';
 
 export interface GithubActionsDeployRoleProps {
-    /** systemd/service name; used as the role-name prefix, e.g. sales */
+    /** systemd/service name; used as the role-name prefix, e.g. app */
     serviceName: string;
     deployBucket: s3.IBucket;
-    /** object prefix for this service's jars, e.g. deploys/sales */
+    /** object prefix for this service's jars, e.g. deploys/app */
     deployPrefix: string;
     /** EC2 instance id the workflow restarts via SSM Run Command */
     targetInstanceId: string;

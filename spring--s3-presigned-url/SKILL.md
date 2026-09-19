@@ -18,9 +18,8 @@ Adds **direct client-to-S3 uploads** to a Spring Boot app. The backend only mint
 short-lived presigned `PUT` URL; the client uploads the bytes straight to S3, then
 stores the permanent `fileUrl` against whatever domain record owns the file.
 
-Extracted from `web.sales`'s `AwsS3Service` / `FileUploadController` so it is reusable
-across any Spring Boot service — including the skeleton produced by
-`spring--init-web-project`.
+Reusable `AwsS3Service` / `FileUploadController` pattern for any Spring Boot
+service — including the skeleton produced by `spring--init-web-project`.
 
 ## Mandatory Trigger
 

@@ -16,7 +16,7 @@ description: >-
   "Spring Boot on Lambda", "Java Spring serverless API", "deploy Spring Boot to
   API Gateway", "SnapStart Spring Boot", "Serverless Framework Java Spring",
   "Maven Spring Boot Lambda", "bootRun and Lambda", "aws-serverless-java-container",
-  "Java 25 Spring Boot 4 Lambda", "blog-comment-system", "lambda spring boot maven".
+  "Java 25 Spring Boot 4 Lambda", "lambda spring boot maven".
 ---
 
 # Java Spring Boot 4 on AWS Lambda (Maven + Serverless Framework v4)

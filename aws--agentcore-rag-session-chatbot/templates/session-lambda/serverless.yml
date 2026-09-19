@@ -1,0 +1,57 @@
+# {{LAMBDA_SERVICE}} — Session messages API
+# Reads AgentCore chat history from a private S3 bucket.
+# The bucket is not public. Only this Lambda (GetObject/ListBucket) and the
+# AgentCore runtime role (Put/Get/List via attach-s3-policy.sh) can access it.
+service: {{LAMBDA_SERVICE}}
+frameworkVersion: '3'
+
+plugins:
+  - serverless-plugin-typescript-express
+  - serverless-plugin-common-excludes
+  - serverless-dotenv-plugin
+  - serverless-prune-plugin
+
+custom:
+  sessionBucket: {{S3_SESSION_BUCKET}}
+  dotenv:
+    path:
+      - .env.local.json
+    dotenvParser: "./jsonParser.js"
+    logging: false
+  prune:
+    automatic: true
+    number: 3
+    oldestFirst: true
+
+provider:
+  name: aws
+  runtime: nodejs22.x
+  stage: ${opt:stage, 'dev'}
+  region: {{AWS_REGION}}
+  apiGateway:
+    binaryMediaTypes:
+      - "*/*"
+
+  iam:
+    role:
+      statements:
+        - Effect: Allow
+          Action:
+            - s3:ListBucket
+          Resource:
+            - arn:aws:s3:::${self:custom.sessionBucket}
+        - Effect: Allow
+          Action:
+            - s3:GetObject
+          Resource:
+            - arn:aws:s3:::${self:custom.sessionBucket}/*
+
+  environment:
+    BUCKET_NAME: ${self:custom.sessionBucket}
+
+functions:
+  api:
+    handler: src/server.handler
+    events:
+      - http: ANY /
+      - http: ANY /{proxy+}

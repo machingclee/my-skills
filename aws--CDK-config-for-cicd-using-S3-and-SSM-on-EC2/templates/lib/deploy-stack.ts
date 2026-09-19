@@ -1,13 +1,13 @@
 import * as cdk from 'aws-cdk-lib';
 import * as iam from 'aws-cdk-lib/aws-iam';
 import { Construct } from 'constructs';
-import type { ESalesConfig, Stage } from '../config/getConfig';
+import type { AppConfig, Stage } from '../config/getConfig';
 import { DeployBucket } from './constructs/deploy-bucket';
 import { GithubActionsDeployRole } from './constructs/github-actions-deploy-role';
 
 export interface DeployStackProps extends cdk.StackProps {
     stage: Stage;
-    config: ESalesConfig;
+    config: AppConfig;
     /** Instance id of the box that receives SSM Run Commands. */
     targetInstanceId: string;
     /** Instance-profile role of the box; gets SSM-core + deploy-read policies. */

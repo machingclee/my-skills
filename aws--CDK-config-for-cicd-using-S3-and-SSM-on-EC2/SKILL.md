@@ -1,11 +1,11 @@
 ---
 name: aws--CDK-config-for-cicd-using-S3-and-SSM-on-EC2
-description: Scaffold an AWS CDK (TypeScript) project that provisions the CI/CD resources for deploying a Java/Spring Boot jar to an EC2 instance from GitHub Actions, centered on the S3 bucket and EC2: the versioned S3 deploy bucket, the GitHub OIDC provider and its deploy role with the correct repo+environment trust policy, the EC2 instance (or wires an existing one) with its instance-profile role, SSM core + deploy-read policies, and the cross-stack wiring, then connects it to a GitHub Actions workflow that pulls the jar over SSM and restarts a systemd unit. Use when the user asks to create, scaffold, or bootstrap the AWS side of a CI/CD pipeline that deploys a jar to EC2 through an S3 bucket and SSM, add the IAM role/SSM/EC2/policies for such CI/CD, or replicate the esales deploy topology for another service.
+description: Scaffold an AWS CDK (TypeScript) project that provisions the CI/CD resources for deploying a Java/Spring Boot jar to an EC2 instance from GitHub Actions, centered on the S3 bucket and EC2: the versioned S3 deploy bucket, the GitHub OIDC provider and its deploy role with the correct repo+environment trust policy, the EC2 instance (or wires an existing one) with its instance-profile role, SSM core + deploy-read policies, and the cross-stack wiring, then connects it to a GitHub Actions workflow that pulls the jar over SSM and restarts a systemd unit. Use when the user asks to create, scaffold, or bootstrap the AWS side of a CI/CD pipeline that deploys a jar to EC2 through an S3 bucket and SSM, or add the IAM role/SSM/EC2/policies for such CI/CD.
 ---
 
 # AWS CDK resources for GitHub Actions -> EC2 deploys over SSM
 
-Bootstraps a CDK project whose stacks create everything the "manual deploy to EC2" pipeline needs, so the GitHub workflow has a role to assume and the instance is allowed to receive SSM Run Commands and pull jars. Modeled on the working reference project `esales` under `/Users/chingcheonglee/Repos/hkev/aws-iaac-for-hkev/esales`; copy the skeleton from there when it is present, otherwise generate from the snippets below.
+Bootstraps a CDK project whose stacks create everything the "manual deploy to EC2" pipeline needs, so the GitHub workflow has a role to assume and the instance is allowed to receive SSM Run Commands and pull jars. Generate from the `templates/` tree in this skill.
 
 ## When to use
 
@@ -17,7 +17,7 @@ The trigger is someone starting a "Spring Boot jar onto one EC2 box" deployment 
 
 ## Templates (primary generation source)
 
-A self-contained TypeScript CDK app lives under `templates/` in this skill. It is the explicit, machine-independent way to generate the resources; use it before reaching for the reference project.
+A self-contained TypeScript CDK app lives under `templates/` in this skill. It is the explicit, machine-independent way to generate the resources.
 
 - `templates/README.md` - replacement guide and deploy commands.
 - `templates/bin/app.ts` - stage context (`-c stage=dev|prod`), builds `ComputeStack-<stage>` + `DeployStack-<stage>` with cross-stack references.
@@ -33,23 +33,23 @@ Generation flow:
 2. Replace every `CHANGE_ME` in `config/dev.ts`, `config/prod.ts`, and the `GITHUB_OWNER_REPO` / `GITHUB_ENVIRONMENT` tokens in the role construct, plus the identifiers listed in `templates/README.md`.
 3. `yarn install && yarn build`, then `synth:prod`, `diff:prod`, `deploy:prod`.
 
-Use the reference project only for optional extras the template intentionally leaves out (VPC creation, Route53, CloudFront, Elastic IP, per-service user-data), copying the matching construct from esales and adapting names.
+The template intentionally leaves out VPC creation, Route53, CloudFront, Elastic IP, and per-service user-data. Add those only when the user asks.
 
-## Reference project layout to copy
+## Generated layout
 
-`/Users/chingcheonglee/Repos/hkev/aws-iaac-for-hkev/esales` holds the working version. Two stacks, cross-stack references, constructs per concern, stage configs:
+Two stacks, cross-stack references, constructs per concern, stage configs:
 
-- `bin/esales.ts` - stage resolved from `-c stage=dev|prod`, builds both stacks.
-- `lib/esales-stack.ts` (`EsalesComputeStack`) - EC2 instance, instance role, networking glue. Exports `ec2InstanceId` and `salesRole`.
-- `lib/esales-github-actions-deploy-stack.ts` (`EsalesGithubActionsDeployStack`) - deploy bucket + deploy role + instance-side policies; imports the instance id/role from the compute stack.
-- `lib/constructs/` - `bucket/esales-deploy-bucket`, `iam/github-action/*`, `iam/common/*`, `ec2/esales-ec2.ts`, plus vpc/sg/elastic-ip/route53/cloudfront constructs that may be trimmed per project.
+- `bin/app.ts` - stage resolved from `-c stage=dev|prod`, builds both stacks.
+- `lib/compute-stack.ts` (`ComputeStack`) - EC2 instance, instance role, networking glue. Exports `ec2InstanceId` and the instance-profile role.
+- `lib/deploy-stack.ts` (`DeployStack`) - deploy bucket + deploy role + instance-side policies; imports the instance id/role from the compute stack.
+- `lib/constructs/` - `deploy-bucket.ts`, `github-actions-deploy-role.ts`.
 - `config/{dev,prod,getConfig}.ts` - per-stage values incl. account-in-`CDK_DEFAULT_ACCOUNT`, region, bucket names, instance id.
 - `package.json` scripts: `build`, `synth:prod`, `diff:prod`, `deploy:prod` (`cdk deploy --require-approval never -c stage=prod`), etc. The account is `process.env.CDK_DEFAULT_ACCOUNT`, so ALWAYS confirm which account a deploy targets (see Gotchas).
 
 ## Steps
 
 1. Ask for or infer the parameters (table below). If only the service name is known, derive defaults `service=x`, `module=web.x`, `/opt/x`, bucket `<x>-deploy-<stage>`, prefix `deploys/x`.
-2. If the reference esales project exists, copy its CDK structure, then trim to the service at hand and rename every identifier (`esales`, `sales`, `web.sales`, `esales-deploy-prod`, `deploys/sales`). If it does not exist, generate an app from the snippets below.
+2. Copy the `templates/` tree into the new project directory, then replace every `CHANGE_ME` token and rename identifiers to the service at hand.
 3. Create the S3 deploy bucket with versioning on (rollback handle) and a lifecycle-free simple policy scope.
 4. Create the deploy role construct: GitHub OIDC provider + role + bucket-write policy + SSM-command policy. The trust policy is the load-bearing piece; copy the block under "The trust policy".
 5. Wire the instance side: the compute stack owns the instance and its instance-profile role. Attach `AmazonSSMManagedInstanceCore` (managed policy) plus an inline read policy allowing `s3:GetObject`/`s3:GetObjectVersion` on the bucket prefix, so the box can pull jars for deploys and rollbacks.
@@ -59,16 +59,16 @@ Use the reference project only for optional extras the template intentionally le
 
 ## Parameters
 
-| Input | Meaning | Reference value (sales) |
+| Input | Meaning | Example |
 |---|---|---|
-| service | systemd unit name + `/opt/<name>` | `sales` |
-| module | Maven module/artifactId; jar base name `<module>.jar` | `web.sales` |
-| bucket / prefix | versioned bucket + object prefix | `esales-deploy-prod` / `deploys/sales` |
-| github repo | CURRENT owner/repo on GitHub | `Hong-Kong-EV-Power-Limited/echarge-java-modules` |
+| service | systemd unit name + `/opt/<name>` | `app` |
+| module | Maven module/artifactId; jar base name `<module>.jar` | `web.app` |
+| bucket / prefix | versioned bucket + object prefix | `app-deploy-prod` / `deploys/app` |
+| github repo | CURRENT owner/repo on GitHub | `OWNER/REPO` |
 | environment | GitHub environment referenced by the workflow job | `production` |
-| account / region | target AWS account & region | `618991747306` / `ap-east-1` |
+| account / region | target AWS account & region | ask; do not invent an account id |
 | instance id | EC2 running SSM agent + the unit | `i-0...` |
-| health url | URL the workflow polls after restart | `http://<svc>.hkev.com.hk/health-check` |
+| health url | URL the workflow polls after restart | `https://<svc>.example.com/health-check` |
 | app port / reverse proxy | jar listen port behind Caddy/nginx | `8081` behind Caddy on 80/443 |
 
 ## The trust policy (read this twice)

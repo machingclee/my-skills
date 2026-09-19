@@ -60,7 +60,7 @@ app:
   cors:
     allowed-origins:
       - "http://localhost:3000"
-      - "https://esales.hkev.com.hk"
+      - "https://app.example.com"
 ```
 
 Move values **verbatim** — preserve exactly what the user lists, including
@@ -73,7 +73,7 @@ reads it. Existing examples: `S3Properties` (`app.s3`) beside `AwsConfiguration`
 `CorsProperties` (`app.cors`) beside `SecurityConfiguration`.
 
 ```java
-package com.echarge.sales.common.configurations.web;
+package com.example.project.common.configurations.web;
 
 import lombok.Data;
 import org.springframework.boot.context.properties.ConfigurationProperties;

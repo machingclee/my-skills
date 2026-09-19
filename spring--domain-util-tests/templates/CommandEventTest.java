@@ -1,6 +1,6 @@
 package com.example.project.testcontainerdb;
 
-import com.echarge.domain.util.common.interfaces.CommandInvoker;
+import com.machingclee.domain.util.common.interfaces.CommandInvoker;
 import com.example.project.common.jpa.entity.SalesEvent;
 import com.example.project.common.jpa.repository.SalesEventRepository;
 import com.fasterxml.jackson.databind.JsonNode;

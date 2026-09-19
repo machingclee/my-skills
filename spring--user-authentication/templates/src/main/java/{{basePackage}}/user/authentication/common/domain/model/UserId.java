@@ -8,7 +8,7 @@ import java.util.Comparator;
 import lombok.*;
 
 /**
- * Core Domain representation of a unique User Identity within the E-Charge ecosystem.
+ * Core domain representation of a unique user identity.
  */
 @Embeddable
 @EqualsAndHashCode()

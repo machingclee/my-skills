@@ -1,10 +1,10 @@
 import { config as dev } from './dev';
 import { config as prod } from './prod';
 
-export interface ESalesConfig {
+export interface AppConfig {
     tags: { Project: string; Stage: string; From: string };
     env: { region: string };
-    /** systemd unit name, /opt/<name> and role-name prefix, e.g. sales */
+    /** systemd unit name, /opt/<name> and role-name prefix, e.g. app */
     serviceName: string;
     vpc: {
         defaultVPC: { id: string };
@@ -22,7 +22,7 @@ export interface ESalesConfig {
     };
     s3: {
         deployBucket: { bucketName: string };
-        /** object prefix for the service jars, e.g. deploys/sales */
+        /** object prefix for the service jars, e.g. deploys/app */
         deployPrefix: string;
     };
 }
@@ -33,6 +33,6 @@ export function isStage(value: unknown): value is Stage {
     return value === 'dev' || value === 'prod';
 }
 
-export function getConfig(stage: Stage): ESalesConfig {
+export function getConfig(stage: Stage): AppConfig {
     return stage === 'prod' ? prod : dev;
 }

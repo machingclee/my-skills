@@ -17,9 +17,9 @@ A TypeScript Worker that serves HTTP through **Hono** and already has a
 `exports` entry, and a sample Hono route that stubs it). Drop domain logic into
 the placeholder class; do not start from a Worker-only or Hono-only skeleton.
 
-Reference implementation (domain code stripped): `comment-socket/` in the blog
-repo — Hono entry + Durable Object class exported from the Worker entrypoint,
-`wrangler.jsonc` with `durable_objects.bindings` **and** `exports`.
+The templates already include a Hono entry + Durable Object class exported from
+the Worker entrypoint, with `wrangler.jsonc` `durable_objects.bindings` **and**
+`exports`.
 
 ## Mandatory trigger
 
@@ -87,7 +87,7 @@ Copy the files from this skill's `templates/` directory into `targetDir`
 (the `templates/src/` subfolder maps to `./src/`), then replace placeholders
 and run setup. **Do not** run `npm create hono` / `create-cloudflare` and then
 try to add a DO on top — the templates already are the Hono Cloudflare Workers
-starter plus the DO wiring from `comment-socket`.
+starter plus Durable Object wiring.
 
 ```bash
 mkdir my-worker && cd my-worker
@@ -124,8 +124,8 @@ curl http://localhost:8787/do/demo
   `src/Placeholder.ts`, `src/index.ts`, and `wrangler.jsonc` together
   (class, binding `name`, `class_name`, `exports` key — all four)
 
-Do **not** add `jose`, Google auth, WebSocket rooms, or comment events. Those
-belong to `comment-socket`, not this skeleton.
+Do **not** add `jose`, Google auth, WebSocket rooms, or product-specific events.
+Those belong in the consuming project, not this skeleton.
 
 ## Local dev & deploy
 
@@ -137,8 +137,7 @@ npm run cf-typegen      # regenerate worker-configuration.d.ts after config chan
 
 ## Adding a Hono route that talks to the DO
 
-Resolve a named stub from the binding, then `fetch` (or RPC) it. Same pattern
-as `comment-socket` `src/index.ts`:
+Resolve a named stub from the binding, then `fetch` (or RPC) it:
 
 ```ts
 app.get('/do/:name', (c) => {
@@ -179,12 +178,11 @@ Use `getByName` (not the older `idFromName` + `get` pair).
    copy a stale date from the template without updating it.
 6. **Run `npm run cf-typegen` after any wrangler config change** so
    `CloudflareBindings` matches the bindings. The Hono app is typed as
-   `Hono<{ Bindings: Env }>` where `Env` lives next to the DO class (same as
-   `comment-socket`); keep that `Env` in sync with `wrangler.jsonc` even if
-   you also use generated types.
-7. **Do not copy `comment-socket`'s `ChatRoom` / `googleAuth` / `events`.**
+   `Hono<{ Bindings: Env }>` where `Env` lives next to the DO class; keep that
+   `Env` in sync with `wrangler.jsonc` even if you also use generated types.
+7. **Do not add product-specific `ChatRoom` / Google auth / event fan-out.**
    This skill is the empty shell. WebSocket hibernation, per-message Google
-   auth, and fan-out live in that project — copy from there only when the
+   auth, and fan-out belong in the consuming project — add them only when the
    user is building that feature.
 8. **One instance per name.** `getByName("demo")` always hits the same object.
    Distinct names → distinct instances (and distinct SQLite files).

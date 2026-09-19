@@ -17,9 +17,9 @@ Adds a **thin Amazon SES wrapper** to a Spring Boot app: a `SesClient` bean plus
 HTML, BCC, and CC-exclusion). Credentials come from the **default provider chain**
 (env / profile locally, Lambda execution role in AWS) — no static keys in config.
 
-Extracted from `comment-system`'s `AwsSesService` / `AwsSesConfig`. Domain
-notification templates (comment-reply HTML) are **not** part of this skill — only
-the reusable SES layer.
+Reusable `AwsSesService` / `AwsSesConfig` layer. Domain notification templates
+(HTML bodies for a specific product) are **not** part of this skill — only the
+SES client and send helpers.
 
 ## Mandatory Trigger
 
@@ -30,8 +30,8 @@ Invoke this skill **before writing SES code** when the user asks to:
 - "app.ses from-address" / "SES notification mail".
 - Scaffold outbound mail in another Spring Boot project using this pattern.
 
-Do **not** copy comment-system's `SendCommentGotRepliedNotificationCommandHandler`
-or its HTML templates — those are domain-specific.
+Do **not** copy product-specific notification handlers or HTML templates —
+those are domain-specific. Keep this skill to the SES client and send helpers.
 
 ## Inputs (collect before generating)
 
@@ -97,7 +97,7 @@ and `AwsSesService` next to other app services (`app/services/` or
    `templates/pom.snippet.xml`.
    - If the project already imports `software.amazon.awssdk:bom`, **omit**
      `<version>` on the `ses` dependency.
-   - Otherwise pin **`2.31.50`** (matches the comment-system reference).
+   - Otherwise pin **`2.31.50`**.
    - Add **only** the `ses` module — not the full SDK uber-jar. Extra AWS
      modules bloat a Lambda package.
 

@@ -3,7 +3,7 @@
 # Required so SesClient.sendEmail succeeds; missing this surfaces as AccessDenied,
 # not as a Spring wiring error.
 #
-# Resource "*" matches the comment-system reference. SES SendEmail does not
+# Resource "*" is the usual starting point. SES SendEmail does not
 # always accept a tidy identity ARN; tighten later if the account requires it.
 iam:
   role:

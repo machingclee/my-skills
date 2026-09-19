@@ -1,0 +1,18 @@
+[
+  { "name": "AZURE_OPENAI_API_KEY", "value": "" },
+  { "name": "AZURE_OPENAI_ENDPOINT", "value": "" },
+  { "name": "AZURE_OPENAI_MODEL", "value": "" },
+  { "name": "AZURE_API_VERSION", "value": "" },
+  { "name": "DEEPSEEK_API_KEY", "value": "" },
+  { "name": "DEEPSEEK_BASE_URL", "value": "https://api.deepseek.com" },
+  { "name": "DEEPSEEK_MODEL", "value": "deepseek-v4-flash" },
+  { "name": "AZURE_EMBEDDING_MODEL", "value": "text-embedding-ada-002" },
+  { "name": "POSTGRES_HOST", "value": "" },
+  { "name": "POSTGRES_DATABASE", "value": "" },
+  { "name": "POSTGRES_USER", "value": "" },
+  { "name": "POSTGRES_PASSWORD", "value": "" },
+  { "name": "POSTGRES_SCHEMA", "value": "{{POSTGRES_SCHEMA}}" },
+  { "name": "S3_SESSION_BUCKET", "value": "{{S3_SESSION_BUCKET}}" },
+  { "name": "AWS_REGION", "value": "{{AWS_REGION}}" },
+  { "name": "OTEL_SDK_DISABLED", "value": "true" }
+]
