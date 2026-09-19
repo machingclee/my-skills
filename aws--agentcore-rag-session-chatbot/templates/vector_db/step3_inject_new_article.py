@@ -10,8 +10,67 @@ from typing import TypedDict
 from tqdm import tqdm
 
 from env import load_env, pg_connect
+from article_fingerprint import content_hash_for, source_path_for
 
 load_env()
+
+# Encoded diagrams.net / draw.io URLs paste the whole mxfile (or a deflated #R
+# blob) into the markdown link. DeepSeek then has to echo that as JSON
+# original_text, hits the output cap, and returns unterminated JSON.
+_ENCODED_DIAGRAM_MIN_LEN = 800
+_DIAGRAM_PAYLOAD_HINT = re.compile(
+    r"diagrams\.net|draw\.io|mxfile|%3Cmxfile|#R",
+    re.IGNORECASE,
+)
+_MD_LINK_RE = re.compile(r"\[([^\]]*)\]\((https?://[^)]+)\)")
+_BARE_URL_RE = re.compile(r"(?<!\()(https?://[^\s)]+)")
+
+
+def is_encoded_diagram_url(url: str) -> bool:
+    return len(url) >= _ENCODED_DIAGRAM_MIN_LEN and bool(
+        _DIAGRAM_PAYLOAD_HINT.search(url)
+    )
+
+
+def shorten_diagram_url(url: str) -> str:
+    """Keep query params (title, etc.) but drop the encoded #R / #U payload."""
+    for marker in ("#R", "#U"):
+        cut = url.find(marker)
+        if cut != -1:
+            return url[:cut]
+    return url[:240].rstrip("&?") + "…"
+
+
+def strip_encoded_diagram_payloads(text: str) -> tuple[str, int]:
+    """Replace giant encoded draw.io URLs with a short stub.
+
+    Returns (cleaned_text, number of payloads stripped).
+    """
+    stripped = 0
+
+    def repl_md(match: re.Match[str]) -> str:
+        nonlocal stripped
+        label, url = match.group(1), match.group(2)
+        if not is_encoded_diagram_url(url):
+            return match.group(0)
+        stripped += 1
+        return (
+            f"[{label}]({shorten_diagram_url(url)}) "
+            "[encoded draw.io diagram omitted]"
+        )
+
+    cleaned = _MD_LINK_RE.sub(repl_md, text)
+
+    def repl_bare(match: re.Match[str]) -> str:
+        nonlocal stripped
+        url = match.group(1)
+        if not is_encoded_diagram_url(url):
+            return url
+        stripped += 1
+        return f"{shorten_diagram_url(url)} [encoded draw.io diagram omitted]"
+
+    cleaned = _BARE_URL_RE.sub(repl_bare, cleaned)
+    return cleaned, stripped
 
 
 class CustomDocument(TypedDict):
@@ -19,6 +78,8 @@ class CustomDocument(TypedDict):
     title: str
     text: str
     slug: str
+    source_path: str
+    content_hash: str
 
 
 class Result(BaseModel):
@@ -39,6 +100,8 @@ class Chunk(BaseModel):
             "title": document["title"],
             "tags": document["tags"],
             "slug": document.get("slug") or "",
+            "source_path": document.get("source_path") or "",
+            "content_hash": document.get("content_hash") or "",
         }
         return Result(page_content=self.headline + "\n\n" + self.summary + "\n\n" + self.original_text, metadata=metadata)
 
@@ -113,8 +176,16 @@ class ArticleInjector:
 
         # Clean up extra whitespace
         text = text.strip()
+        source_path = source_path_for(filepath)
 
-        return CustomDocument(tags=tags, title=title, text=text, slug=slug)
+        return CustomDocument(
+            tags=tags,
+            title=title,
+            text=text,
+            slug=slug,
+            source_path=source_path,
+            content_hash=content_hash_for(filepath, source_path),
+        )
 
     def make_user_prompt(self, document: CustomDocument):
         how_many = (len(document["text"]) // self.average_chunk_size) + 1
@@ -172,13 +243,68 @@ class ArticleInjector:
         )
         return self._parse_chunks_json(response.choices[0].message.content)
 
+    def _fallback_chunks(self, document: CustomDocument) -> list[Result]:
+        """Split without the LLM when DeepSeek JSON is truncated or skipped."""
+        text = document["text"] or document["title"]
+        size = self.average_chunk_size
+        overlap = max(200, size // 4)
+        results: list[Result] = []
+        start = 0
+        part = 0
+        while start < len(text):
+            end = min(start + size, len(text))
+            part += 1
+            chunk = Chunk(
+                headline=f"{document['title']} (part {part})",
+                summary=f"Excerpt from {document['title']}.",
+                original_text=text[start:end],
+            )
+            results.append(chunk.as_result(document))
+            if end >= len(text):
+                break
+            start = max(end - overlap, start + 1)
+        print(f"Fallback splitter created {len(results)} chunks")
+        return results
+
+    def _diagram_chunks(self, document: CustomDocument) -> list[Result]:
+        """One searchable chunk for a draw.io article after the encoded blob is gone."""
+        chunk = Chunk(
+            headline=document["title"],
+            summary=(
+                f"{document['title']} is a draw.io / diagrams.net article. "
+                "The encoded diagram XML was omitted; editable and viewer links remain."
+            ),
+            original_text=document["text"] or document["title"],
+        )
+        print("Skipped LLM chunker for encoded draw.io payload")
+        return [chunk.as_result(document)]
+
     def process_document(self, document: CustomDocument) -> list[Result]:
         """Process document into chunks using DeepSeek with retry on timeout / truncated JSON.
 
         Long articles are split first: the chunker copies original_text into JSON, so a
         ~32k-char post plus overlap exceeds DeepSeek's output cap and comes back as
         unterminated JSON.
+
+        Encoded draw.io / diagrams.net URL payloads are stripped and never sent to
+        the LLM — echoing a 4k–12k #R blob as JSON original_text always truncates.
         """
+        cleaned, n_payloads = strip_encoded_diagram_payloads(document["text"])
+        if n_payloads:
+            print(
+                f"Stripped {n_payloads} encoded draw.io payload(s); "
+                "skipping LLM chunker"
+            )
+            diagram_doc = CustomDocument(
+                tags=document["tags"],
+                title=document["title"],
+                text=cleaned.strip() or document["title"],
+                slug=document.get("slug") or "",
+                source_path=document.get("source_path") or "",
+                content_hash=document.get("content_hash") or "",
+            )
+            return self._diagram_chunks(diagram_doc)
+
         max_part_chars = 14000
         overlap_chars = 400
         text = document["text"]
@@ -199,6 +325,9 @@ class ArticleInjector:
                 tags=document["tags"],
                 title=document["title"],
                 text=text[start:end],
+                slug=document.get("slug") or "",
+                source_path=document.get("source_path") or "",
+                content_hash=document.get("content_hash") or "",
             )
             results.extend(self._chunk_document(part_doc))
             if end >= len(text):
@@ -242,6 +371,12 @@ class ArticleInjector:
                     wait_time = (attempt + 1) * 30  # 30s, 60s, 90s
                     print(f"Chunker error ({e}), retrying in {wait_time} seconds...")
                     time.sleep(wait_time)
+                elif retryable:
+                    print(
+                        f"Chunker failed after {max_retries} attempts ({e}); "
+                        "using fallback splitter"
+                    )
+                    return self._fallback_chunks(document)
                 else:
                     raise
 
@@ -349,6 +484,8 @@ class ArticleInjector:
         document = self.load_document(filepath)
         print(f"Title: {document['title']}")
         print(f"Tags: {document['tags']}")
+        print(f"Path: {document['source_path']}")
+        print(f"Hash: {document['content_hash']}")
 
         # Process into chunks
         print("Processing document into chunks...")

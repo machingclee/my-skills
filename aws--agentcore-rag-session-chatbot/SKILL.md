@@ -1,7 +1,7 @@
 ---
 name: aws--agentcore-rag-session-chatbot
 description: >-
-  Scaffold a docs RAG chatbot stack: markdown → pgvector (isolated
+  Scaffold the HKEV-style RAG chatbot stack: markdown → pgvector (isolated
   schema), Bedrock AgentCore Strands AG-UI agent, Cognito CUSTOM_JWT (dummy
   public bot user), S3 session history, session-retrieval Lambda, and a
   floating React chat UI. Use when the user wants a docs RAG agent with
@@ -11,7 +11,7 @@ description: >-
 
 # AgentCore RAG + session chatbot
 
-Reusable docs RAG + session chatbot stack. **Do not copy
+Reusable extract of the echarge-documentation stack. **Do not copy
 credentials** from any existing `.env`, `agentcore.json`, or chat UI. Ask
 the user to fill env files locally. Templates use empty strings and
 `{{PLACEHOLDERS}}` only.
@@ -34,10 +34,10 @@ the slash command if the request matches.
 **Plain language (also trigger):**
 
 - "Scaffold a docs RAG agent with AgentCore, Cognito JWT, and session retrieval"
-- "Copy the docs RAG chatbot stack into this repo"
+- "Copy the HKEV-style RAG chatbot stack into this repo"
 - "Set up AgentCore + pgvector + floating chat + session Lambda"
 - "Add a docs chatbot with AgentCore and S3 session history"
-- "Reuse the documentation RAG / session chatbot"
+- "Reuse the echarge-documentation RAG / session chatbot"
 
 **Do not use** `/aws--agentcore-rag-pgvector` (removed). For a bare
 `agentcore create` only, use `/aws--agentcore-boilerplate`.
@@ -49,10 +49,16 @@ fill env files in the **target** repo.
 ## Architecture
 
 ```
-markdowns/  (YAML: title, description, slug, section, tags, wip)
+{{ARTICLES_DIR}}/  (YAML: title, description, slug, section, tags, wip)
     │
     ▼
+vector_db/sync_articles.py
+    fingerprint = sha256(source_path + NUL + raw file bytes)
+    plan: added | changed | removed | unfingerprinted | ok
+    │
+    ▼  --apply  (delete by title, then inject)
 vector_db/inject  →  DeepSeek chunks + Azure ada-002 (1536-d)
+    metadata: title, slug, tags, source_path, content_hash
     │
     ▼
 PostgreSQL  schema {{POSTGRES_SCHEMA}}.embeddings
@@ -100,13 +106,13 @@ vs `agentcore/agentcore/agentcore.json`).
 | Input | Meaning | Example |
 |---|---|---|
 | `targetDir` | repo root | `.` |
-| `projectName` | AgentCore project `name` (alphanumeric, no hyphen, max 23) | `docsRag` |
-| `agentName` | runtime / `app/` folder, PascalCase | `DocsRagAgent` |
-| `domainDescription` | system-prompt domain | `internal product documentation` |
+| `projectName` | AgentCore project `name` (alphanumeric, no hyphen, max 23) | `hkevDoc` |
+| `agentName` | runtime / `app/` folder, PascalCase | `HkevDocAgent` |
+| `domainDescription` | system-prompt domain | `HKEV / E-Charge internal documentation` |
 | `articlesDir` | markdown corpus relative to repo | `markdowns` |
 | `articleRoutePrefix` | citation URL prefix, no trailing slash | `/docs` |
-| `postgresSchema` | isolated PG schema (not `public`) | `docs` |
-| `s3SessionBucket` | private session bucket | `docs-rag-agentcore-sessions` |
+| `postgresSchema` | isolated PG schema (not `public`) | `hkev` |
+| `s3SessionBucket` | private session bucket | `hkev-doc-agentcore-sessions` |
 | `awsRegion` | AgentCore + S3 + Lambda | `ap-northeast-1` |
 | `cognitoRegion` | user pool region | `us-east-1` |
 | `frontendDir` | existing React app to mount the chatbot | `doc-project/frontend` |
@@ -121,12 +127,12 @@ Replace in **every** copied file. Never substitute secret **values**.
 
 | Placeholder | Replace with |
 |---|---|
-| `{{PROJECT_NAME}}` | `docsRag` |
-| `{{AGENT_NAME}}` | `DocsRagAgent` |
+| `{{PROJECT_NAME}}` | `hkevDoc` |
+| `{{AGENT_NAME}}` | `HkevDocAgent` |
 | `{{DOMAIN_DESCRIPTION}}` | domain sentence |
 | `{{ARTICLES_DIR}}` | `markdowns` |
 | `{{ARTICLE_ROUTE_PREFIX}}` | `/docs` |
-| `{{POSTGRES_SCHEMA}}` | `docs` |
+| `{{POSTGRES_SCHEMA}}` | `hkev` |
 | `{{S3_SESSION_BUCKET}}` | bucket name |
 | `{{AWS_REGION}}` | `ap-northeast-1` |
 | `{{COGNITO_REGION}}` | `us-east-1` |
@@ -136,7 +142,7 @@ Replace in **every** copied file. Never substitute secret **values**.
 | `{{BOT_PASSWORD}}` | dummy password the user chose (public by design; still do not commit if they prefer env) |
 | `{{WELCOME_MESSAGE}}` | welcome string |
 | `{{CHAT_TITLE}}` | header in FloatingChatBot |
-| `{{LAMBDA_SERVICE}}` | e.g. `docs-rag-api` |
+| `{{LAMBDA_SERVICE}}` | e.g. `hkev-doc-rag-api` |
 | `{{SESSION_API_BASE}}` | filled **after** `serverless deploy` |
 
 Env **names** stay as written (`POSTGRES_HOST`, `DEEPSEEK_API_KEY`, …).
@@ -243,6 +249,15 @@ tags: [..]
 wip: false
 ```
 
+Inject writes `source_path` and `content_hash` onto every chunk. After `create_table.py`, sync the corpus:
+
+```bash
+uv run --directory vector_db sync_articles.py                  # dry-run
+uv run --directory vector_db sync_articles.py --apply          # new empty table
+# existing rows with no hash:
+uv run --directory vector_db sync_articles.py --backfill-hashes
+```
+
 ### 7. S3 bucket + session Lambda
 
 Bucket is **private**. Do not make it public. Lambda access is IAM in
@@ -277,19 +292,60 @@ one. Put the invoke URL in `VITE_AGENT_ENDPOINT`.
 - Env files created (names only) and which file the user must fill
 - Cognito pool/client ids (not secrets besides the agreed dummy password)
 - Session API URL and whether `create_table.py` / first inject ran
-- Next: fill `.env`, inject markdowns, `agentcore deploy`, attach S3 policy
+- Next: fill `.env`, `create_table.py`, `sync_articles.py --backfill-hashes` (or `--apply` for a new corpus), `agentcore deploy`, attach S3 policy
 
 ## Operations
 
+Prefer **sync** over one-off inject/delete. Each inject stores `metadata.source_path` and `metadata.content_hash` (`sha256(source_path + NUL + raw file bytes)`). Filename, frontmatter, and body all change the hash. Any mismatch is delete + re-inject.
+
 | Intent | Command |
 |---|---|
-| Inject | `sh vector_db/inject_new_article.sh "<abs-path>"` |
-| Missing | `uv run --directory vector_db check_missing.py` |
+| Sync dry-run | `uv run --directory vector_db sync_articles.py` |
+| First-time fingerprints | `uv run --directory vector_db sync_articles.py --backfill-hashes` |
+| Apply add / change / remove | `uv run --directory vector_db sync_articles.py --apply` |
+| Title-only missing | `uv run --directory vector_db check_missing.py` |
+| Inject one file | `sh vector_db/inject_new_article.sh "<abs-path>"` |
 | Latest | `uv run --directory vector_db get_latest_articles.py` |
 | Delete (dry-run) | `sh vector_db/remove_old_article.sh <prefix>` then `--yes` |
 | Tags + deploy | `uv run --directory vector_db get_tags.py` then `agentcore deploy -y` |
 
-Resolve files by filename, `slug`, path, or title — not a YAML `id`.
+Resolve files by filename, `slug`, path, or title — not a YAML `id`. Ignore `*-tc.md`. Skip `wip: true` (and drop vectors if a previously injected article flips to WIP).
+
+### Sync articles (default path)
+
+1. Dry-run:
+
+```bash
+uv run --directory vector_db sync_articles.py
+```
+
+Buckets:
+
+- **added** — file title not in DB → inject
+- **changed** — path or file bytes differ (includes rename) → delete + inject
+- **removed** — DB title has no file (or file is now WIP) → delete
+- **unfingerprinted** — existing rows have no hash yet → backfill, do not re-embed
+- **ok** — path + hash match
+
+2. If the plan is only **unfingerprinted**, write hashes (and fill empty `slug`) without Azure / DeepSeek:
+
+```bash
+uv run --directory vector_db sync_articles.py --backfill-hashes
+```
+
+Then dry-run again. Expect all **ok**.
+
+3. If the plan has **added** / **changed** / **removed**, confirm with the user, then:
+
+```bash
+uv run --directory vector_db sync_articles.py --apply
+```
+
+`--apply` refuses if any articles are still unfingerprinted — backfill first.
+
+4. If YAML `tags` changed, run `get_tags.py` and deploy AgentCore.
+
+Do **not** hook sync into the docs-site GitHub Actions workflow unless that job has Postgres / Azure / DeepSeek secrets.
 
 ## Gotchas
 
@@ -297,11 +353,13 @@ Resolve files by filename, `slug`, path, or title — not a YAML `id`.
    `extra_body={"thinking": {"type": "disabled"}}`.
 2. ada-002 is 1536-d. Changing embedding model needs a new table.
 3. `sslmode=require` default. Local PG: `POSTGRES_SSLMODE=disable`.
-4. `wip: true` skips inject.
-5. One tool per model turn.
-6. zsh: never split AWS CLI with `\`; `$USERNAME` is reserved.
-7. Never commit `.env`, `.env.local`, or filled `envVars` values.
-8. Session Lambda does not create the AgentCore runtime role.
+4. `wip: true` skips inject. Sync treats a previously injected WIP file as `removed`.
+5. Title-only `check_missing.py` does not see renames or body edits. Use `sync_articles.py`.
+6. One tool per model turn.
+7. zsh: never split AWS CLI with `\`; `$USERNAME` is reserved.
+8. Never commit `.env`, `.env.local`, or filled `envVars` values.
+9. Session Lambda does not create the AgentCore runtime role.
+10. Encoded draw.io / diagrams.net `#R` / `#U` URL payloads are stripped before DeepSeek. The hash still uses raw file bytes, so a diagram-only edit still counts as `changed`.
 
 ## Template files
 
