@@ -2,7 +2,8 @@
 
 Creates a new AgentCore project via `agentcore create` and then customizes the
 generated files with production-ready defaults: Azure OpenAI model, JWT
-authorizer, all 4 memory strategy types, and S3 session storage.
+authorizer, all 4 memory strategy types, S3 session storage, and a CDK grant
+on the runtime role for the session bucket (`S3_SESSION_BUCKET`).
 
 ## When to Use
 
@@ -18,6 +19,7 @@ authorizer, all 4 memory strategy types, and S3 session storage.
 <project-name>/
 ├── agentcore/
 │   ├── agentcore.json          # Customized with all 4 memory types + JWT authorizer
+│   ├── cdk/lib/cdk-stack.ts    # Grants S3 session IAM from S3_SESSION_BUCKET
 │   └── .cli/
 ├── app/<AgentName>/
 │   ├── main.py                 # S3SessionManager + Azure OpenAI model config
@@ -191,21 +193,23 @@ single memory with 2 strategies. Replace it with one memory containing all
 
 Also update `tags.agentcore:project-name` to match the chosen project name.
 
-#### 4c. Add Azure OpenAI environment variables to the runtime
+#### 4c. Add Azure OpenAI + S3 session env vars to the runtime
 
-In `runtimes[0]`, add an `environment` block with Azure OpenAI variables:
+In `runtimes[0]`, add an `envVars` **array** (not an `environment` object — that is not a valid `AgentEnvSpec` field). CDK reads `S3_SESSION_BUCKET` from this list and attaches the session IAM grant in Step 8.
 
 ```json
-"environment": {
-  "AZURE_OPENAI_ENDPOINT": "<azure-endpoint>",
-  "AZURE_OPENAI_API_KEY": "<azure-api-key>",
-  "AZURE_OPENAI_DEPLOYMENT_NAME": "<deployment-name>",
-  "AZURE_OPENAI_API_VERSION": "2024-10-21",
-  "S3_SESSION_BUCKET": "<project-name-lower>-agentcore-sessions"
-}
+"envVars": [
+  { "name": "AZURE_OPENAI_ENDPOINT", "value": "<azure-endpoint>" },
+  { "name": "AZURE_OPENAI_API_KEY", "value": "<azure-api-key>" },
+  { "name": "AZURE_OPENAI_DEPLOYMENT_NAME", "value": "<deployment-name>" },
+  { "name": "AZURE_OPENAI_API_VERSION", "value": "2024-10-21" },
+  { "name": "S3_SESSION_BUCKET", "value": "<project-name-lower>-agentcore-sessions" }
+]
 ```
 
-Use the values collected in Step 2, or placeholders if skipped.
+Use the values collected in Step 2, or placeholders if skipped. Merge with any `envVars` `agentcore create` already wrote — do not drop existing entries.
+
+`S3_SESSION_BUCKET` is **app config only**. It does not grant IAM. `agentcore.json` has no field for an arbitrary S3 bucket on the runtime role (`additionalPolicies` exists in the published CDK schema but is missing from this project's `.llm-context` types, and `connections` only covers AgentCore resources). The grant is added in CDK (Step 8).
 
 ### Step 5: Customize `main.py`
 
@@ -241,72 +245,61 @@ Add to `[project].dependencies`:
 "openai>=1.0.0",
 ```
 
-### Step 8: Scaffold the test frontend
+Do **not** scaffold a standalone Vite chat frontend. This skill is agent +
+IAM only. For a floating React chatbot (Cognito dummy bot + AG-UI SSE +
+session history), use `/aws--agentcore-rag-session-chatbot` and overlay it
+on an existing app.
 
-Copy the entire `templates/frontend/` directory from this skill into a new
-`frontend/` folder at the project root (sibling to `agentcore/` and `app/`).
+### Step 8: Register the S3 session bucket on the CDK runtime role
 
-```
-cp -r <skill-dir>/templates/frontend <project-dir>/frontend
-```
+`agentcore create` generates `agentcore/cdk/`. `bin/cdk.ts` already loads
+`agentcore.json` via `ConfigIO.readProjectSpec()`, so the stack can read
+`S3_SESSION_BUCKET` from each runtime's `envVars` and attach IAM. **Do this
+in CDK** — a post-deploy `aws iam put-role-policy` is wiped if the role is
+recreated on the next `agentcore deploy`.
 
-Then substitute the following placeholders across the copied files
-(`index.html`, `src/App.tsx`, `src/components/ChatInterface.tsx`,
-`src/components/CopilotChatInterface.tsx`):
+1. Read `agentcore/cdk/lib/cdk-stack.ts` (generated; do not replace the whole file).
+2. Keep `import * as iam from 'aws-cdk-lib/aws-iam';` (already present in the
+   generated stack).
+3. Add the helpers from `templates/cdk-s3-session-grant.ts` next to
+   `isPaymentEligibleAgent` (or just above `export class AgentCoreStack`).
+4. Immediately after `this.application = new AgentCoreApplication(...)`, insert:
 
-| Placeholder | Replace with | Example |
-|---|---|---|
-| `{{PROJECT_NAME_LOWER}}` | Lowercased project name (hyphens ok) | `my-agent` |
-| `{{PAGE_TITLE}}` | Page title + header text | `🍽️ My Agent` |
-| `{{AGENT_NAME}}` | Runtime name from `agentcore.json`, snake_case | `my_agent` |
-| `{{WELCOME_MESSAGE}}` | First assistant message shown to the user | `"Hello! I'm your assistant..."` |
-| `{{CHAT_PLACEHOLDER}}` | Input placeholder text | `"Ask me anything..."` |
-
-After copying, tell the user to:
-
-```bash
-cd frontend
-cp .env.sample .env   # then fill in Cognito + agent endpoint values
-npm install
-npm run dev            # starts on http://localhost:5173
-```
-
-The frontend template includes:
-- **Custom ChatInterface** (`VITE_CHAT_MODE=custom`) — hand-built SSE streaming
-  chat with tool-call/reasoning activity indicators, state management, and DSML
-  sanitization. Default mode.
-- **CopilotKit ChatInterface** (`VITE_CHAT_MODE=copilotkit`) — CopilotKit-powered
-  AG-UI client that handles the full protocol natively. Set `VITE_CHAT_MODE=copilotkit`
-  in `.env` to switch.
-- **Cognito auto-login** — uses the bot credentials from `.env` to auto-authenticate
-  and attach a JWT to every agent request, matching the `CUSTOM_JWT` authorizer
-  configured in `agentcore.json`.
-
-### Step 9: Scaffold the S3 policy script
-
-Copy `templates/attach-s3-policy.sh` from this skill into the project root:
-
-```
-cp <skill-dir>/templates/attach-s3-policy.sh <project-dir>/attach-s3-policy.sh
-chmod +x <project-dir>/attach-s3-policy.sh
+```ts
+    // Strands S3SessionManager needs GetObject/PutObject/ListBucket on the
+    // bucket named in S3_SESSION_BUCKET. agentcore.json has no IAM field for
+    // arbitrary S3, so grant it here from that env var.
+    for (const env of this.application.environments.values()) {
+      const bucket = sessionBucketFromAgent(env.agent);
+      if (bucket) {
+        grantS3SessionStorage(env.runtime, bucket);
+      }
+    }
 ```
 
-Substitute `{{S3_SESSION_BUCKET}}` with the session bucket name derived in Step 1
-(e.g. `myagent-agentcore-sessions`). The script:
+That grants:
+- `s3:ListBucket` on `arn:aws:s3:::<bucket>`
+- `s3:GetObject` + `s3:PutObject` on `arn:aws:s3:::<bucket>/*`
 
-- Reads the deployed runtime role ARN from `agentcore/.cli/deployed-state.json`
-- Attaches an inline IAM policy granting `s3:PutObject`, `s3:GetObject`, and `s3:ListBucket` on the session bucket
-- Is idempotent — safe to run after every deploy
+If `agentcore create` regenerated `cdk-stack.ts` on a later run, re-apply this
+patch. Typecheck with `./node_modules/.bin/tsc --noEmit` from `agentcore/cdk`.
 
-### Step 10: Report what was created
+Optionally still copy `templates/attach-s3-policy.sh` as a **manual fallback**
+(emergency repair without a full deploy). Substitute `{{S3_SESSION_BUCKET}}`.
+Do **not** present it as the primary IAM setup.
+
+### Step 9: Report what was created
 
 After all changes are written, summarize:
 
 - Project location and name
-- S3 bucket name and the `attach-s3-policy.sh` script for IAM setup
-- The Cognito authorizer placeholder values they need to fill in (both in
-  `agentcore.json` and `frontend/.env`)
+- S3 bucket name (`<project_name_lowercase>-agentcore-sessions`) — **create
+  the bucket before deploy**; CDK grants IAM but does not create the bucket
+- CDK stack now attaches session IAM from `S3_SESSION_BUCKET` on `agentcore deploy`
+- The Cognito authorizer placeholder values they need to fill in
+  `agentcore.json`
 - Azure OpenAI environment variables to configure (endpoint, API key, deployment name)
+- For a chat UI, use `/aws--agentcore-rag-session-chatbot` on an existing app
 - Next steps: `agentcore dev` for local development, `agentcore deploy` to ship
 
 ## Azure OpenAI Configuration
@@ -319,6 +312,7 @@ After all changes are written, summarize:
 | `AZURE_OPENAI_API_KEY` | Azure OpenAI API key | `abc123...` |
 | `AZURE_OPENAI_DEPLOYMENT_NAME` | Model deployment name | `gpt-4o` |
 | `AZURE_OPENAI_API_VERSION` | Azure OpenAI API version | `2024-10-21` |
+| `S3_SESSION_BUCKET` | Bucket for Strands `S3SessionManager` (env only; IAM is granted in CDK) | `myblogagent-agentcore-sessions` |
 
 ### Model Configuration in Code
 
@@ -363,22 +357,37 @@ S3 bucket names must:
 - Start and end with a letter or number
 - Not contain two adjacent periods
 
+Put that name in `runtimes[0].envVars` as `S3_SESSION_BUCKET`. CDK then grants
+`s3:ListBucket` on the bucket ARN and `s3:GetObject` / `s3:PutObject` on
+`bucket/*` to the runtime execution role. Without that grant, `S3SessionManager`
+fails on first invoke with `AccessDenied` on `s3:ListBucket` and the chat UI
+shows `(No response)`.
+
 ## Gotchas
 
 1. **`agentcore create` prompts.** Even with `--defaults`, the CLI may still
    prompt for some options. Pass every known value as a flag to minimize
    interactivity.
-2. **Bucket must exist.** The S3 bucket is not auto-created. Remind the user
-   to create it before deploying.
-3. **Python 3.12 vs 3.14 runtime.** The generated `pyproject.toml` may pin
+2. **Bucket must exist.** The S3 bucket is not auto-created, and CDK only
+   attaches IAM — it does not create the bucket. Remind the user to create it
+   before deploying.
+3. **`S3_SESSION_BUCKET` is not IAM.** Setting the env var in `agentcore.json`
+   only tells the app which bucket to use. The runtime role still needs the
+   CDK grant in Step 8. `envVars` is an array of `{name, value}` — never an
+   `environment` object.
+4. **`agentcore create` / CLI may regenerate `cdk-stack.ts`.** Re-apply the
+   S3 grant helpers after regeneration. Do not rely on `attach-s3-policy.sh`
+   as the primary path — inline IAM attached that way is wiped if the role
+   is recreated on the next deploy.
+5. **Python 3.12 vs 3.14 runtime.** The generated `pyproject.toml` may pin
    `requires-python = ">=3.12, <3.14"`. The runtime version in `agentcore.json`
    is `PYTHON_3_14` — these should agree. If `agentcore create` generates a
    mismatched constraint, fix `pyproject.toml` to match the runtime.
-4. **Azure OpenAI API key security.** Never hardcode the API key. Store it
+6. **Azure OpenAI API key security.** Never hardcode the API key. Store it
    in AgentCore environment variables (configured in `agentcore.json`) or
    AWS Secrets Manager. The template reads it from the environment.
-5. **Memory names must match.** The memory name in `agentcore.json`
+7. **Memory names must match.** The memory name in `agentcore.json`
    (`<ProjectName>Memory`) must match the `MEMORY_<NAME>_ID` env var that
    AgentCore injects at deploy time.
-6. **The `main.py` name field in `StrandsAgent`** must be a valid
+8. **The `main.py` name field in `StrandsAgent`** must be a valid
    identifier (no spaces, hyphens, or special characters). Use snake_case.

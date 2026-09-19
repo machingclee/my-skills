@@ -4,12 +4,14 @@ graalvmNative {
             imageName.set("backend-native") // change to the artifact name
             mainClass.set("com.example.ApplicationKt") // Java: com.example.Application
 
-            // native-image defaults to all cores. Spring + Hibernate + Flyway
-            // peaks several GB at "Parsing methods"; a 10-core Mac often gets
-            // SIGKILL / exit 137 (OOM). Cap threads + builder heap.
-            buildArgs.add("-H:NumberOfThreads=4")
-            buildArgs.add("-J-Xms2g")
-            buildArgs.add("-J-Xmx6g")
+            // native-image defaults to all cores. Two OOMs, opposite knobs:
+            //   exit 137 = kernel SIGKILL (too many threads / oversubscribed RAM)
+            //   exit 3   = Java heap space, usually at [6/8] Compiling methods
+            //              (builder -Xmx too small). 6g analyzes then dies compiling.
+            // 2 threads + 10g: Peak RSS ~7GB on a 32GB Mac.
+            buildArgs.add("-H:NumberOfThreads=2")
+            buildArgs.add("-J-Xms4g")
+            buildArgs.add("-J-Xmx10g")
             buildArgs.add("-H:+ReportExceptionStackTraces")
 
             buildArgs.add("--initialize-at-run-time=ch.qos.logback")

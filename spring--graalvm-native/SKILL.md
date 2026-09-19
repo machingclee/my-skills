@@ -8,6 +8,7 @@ description: >-
   reflect-config.json), keep unused JDBC drivers off the native classpath, and
   diagnose AotInitializerNotFoundException, image-heap ProcessRunner, Flyway
   MissingReflectionRegistrationError, native-image exit 137 / SIGKILL (OOM),
+  native-image exit 3 / Java heap space at Compiling methods,
   and Hibernate 7.2 native crashes
   (JpaLogger_$logger, DynamicInsertAnnotation, EventListener[], Parameter.getName,
   HibernateProxy/BytecodeProvider=none, kotlin.collections.EmptyList,
@@ -24,8 +25,8 @@ description: >-
   "Invalid logger interface", "entityManagerFactory", "Hibernate 7.2 native",
   "HibernateProxy", "BytecodeProvider is 'none'", "EmptyList",
   "getAccessor", "Record components not available", "FlowResponseDTO",
-  "/v3/api-docs", "/docs/commands", "exit 137", "native-image OOM",
-  "NumberOfThreads", "Parsing methods".
+  "/v3/api-docs", "/docs/commands", "exit 137", "exit 3", "Java heap space",
+  "native-image OOM", "NumberOfThreads", "Parsing methods", "Compiling methods".
 ---
 
 # Spring Boot → GraalVM native executable
@@ -286,45 +287,62 @@ Minimum set that has been needed for Boot + Logback + HTTP:
 
 Do **not** add `--verbose` by default — it inflates builder RAM.
 
-### Builder RAM (exit 137 / SIGKILL)
+### Builder RAM (exit 137 vs exit 3)
 
 `native-image` is a **build-time** JVM, not the app. It defaults to **all
-CPU cores**. Spring Boot 4 + JPA + Flyway commonly peaks **5–8GB** at
-`[4/8] Parsing methods`. On a laptop that is already swapping, the kernel
-kills it: Gradle reports `finished with non-zero exit value 137`.
+CPU cores**. Spring Boot 4 + JPA + Flyway + springdoc commonly peaks
+**5–8GB** at `[4/8] Parsing methods` and **higher** at
+`[6/8] Compiling methods`. Two different failures look similar in Gradle
+(`Process 'command …/native-image' finished with non-zero exit value N`)
+and **need opposite heap changes**. Read the native-image stdout, not
+just the Gradle exit code.
+
+| Gradle exit | Last native-image line | What died | Heap change |
+|---|---|---|---|
+| **137** | `[4/8] Parsing methods` (or earlier) at several GB, **no** Java exception | Kernel **SIGKILL**. Builder used all cores / oversubscribed unified memory | **Lower** threads. Maybe **lower** `-J-Xmx` so the process is smaller. `--no-daemon`. Free RAM. |
+| **3** | `Terminating due to java.lang.OutOfMemoryError: Java heap space` then `The Native Image build process ran out of memory.` Often at **`[6/8] Compiling methods`** | Builder JVM hit **`-Xmx`**. Analysis can finish under the cap; compiling still OOMs | **Raise** `-J-Xmx`. Drop threads to 2 so peak RSS stays under machine RAM. **Do not** shrink the heap. |
 
 That is **not** a compile error, AOT metadata miss, or Flyway failure.
+Do **not** treat exit 3 as exit 137. The previous 6g cap is enough to
+*analyze* this app (~4.7GB at `[2/8]` / `[3/8]`) and then dies at
+`[6/8]` (`Java heap space`). Proven on a 32GB Mac: **2 threads + 10g**
+finished with Peak RSS **7.04GB** (laying-out stage sat at 7.73GB heap).
 
 Cap it in `graalvmNative { binaries.named("main") { buildArgs } }` (same
 block as the flags above; Gradle `buildArgs.add` is how Boot projects pass
 `native-image` options):
 
 ```
--H:NumberOfThreads=4
--J-Xms2g
--J-Xmx6g
+-H:NumberOfThreads=2
+-J-Xms4g
+-J-Xmx10g
 ```
 
-| Flag | What it is | Typical |
+| Flag | What it is | Typical (32GB Mac) |
 |---|---|---|
-| `-H:NumberOfThreads=N` | Graal analysis parallelism (HostedOption) | 4; drop to 2 if still 137 |
-| `-J-Xms` / `-J-Xmx` | Heap of the **builder JVM** (`-J` = pass to java) | 2g / 6g on a 16–32GB Mac |
+| `-H:NumberOfThreads=N` | Graal analysis parallelism (HostedOption) | **2**. 4 threads + 6g OOMs compiling. Drop to 1 only if still 137. |
+| `-J-Xms` / `-J-Xmx` | Heap of the **builder JVM** (`-J` = pass to java) | 4g / **10g**. 6g analyzes then exit 3 at `[6/8]`. |
 | `--verbose` | Extra logging; costs RAM | omit unless diagnosing |
 
 Maven (`native-maven-plugin`):
 
 ```xml
 <buildArgs>
-  <buildArg>-H:NumberOfThreads=4</buildArg>
-  <buildArg>-J-Xmx6g</buildArg>
+  <buildArg>-H:NumberOfThreads=2</buildArg>
+  <buildArg>-J-Xms4g</buildArg>
+  <buildArg>-J-Xmx10g</buildArg>
 </buildArgs>
 ```
 
-CLI: `native-image -H:NumberOfThreads=4 -J-Xmx6g …`
+CLI: `native-image -H:NumberOfThreads=2 -J-Xms4g -J-Xmx10g …`
 
 Also: `./gradlew nativeCompile --no-daemon` (a leftover daemon + Chrome +
 the builder compete for the same unified memory). Quit heavy apps first.
-Still 137 → 2 threads / `-J-Xmx4g`. Slower is expected.
+
+| Still failing | Next knob |
+|---|---|
+| Still **137** | Keep 2 (or 1) threads; try `-J-Xmx8g`; free RAM. Slower is expected. |
+| Still **exit 3** / `Java heap space` at `[6/8]` | Raise `-J-Xmx` (10g → 12g). Keep threads at 2. Never answer this by lowering Xmx. |
 
 Logback `StatusBase` / `Logger` often also need `--initialize-at-run-time`
 (see `templates/native-image.properties`). Add new `--initialize-at-run-time`
@@ -381,7 +399,8 @@ A production wrapper **must** fail if Graal 25 is missing — copy
 | Swagger UI `Failed to load API definition` / `GET /v3/api-docs` `NoSuchMethodError: Can't find getAccessor method` | springdoc `MethodParameterPojoExtractor` and kotlin-reflect call `java.lang.reflect.RecordComponent.getAccessor()` plus `Class.isRecord` / `getRecordComponents` | Register `java.lang.reflect.RecordComponent` (all public/declared methods) and `Class.isRecord` / `Class.getRecordComponents`. Also `java.beans.Introspector` / `BeanInfo` / `PropertyDescriptor`. Rebuild native. `/health` and `/folders` can already be 200. |
 | `UnsupportedFeatureError: Record components not available for record class … All record component accessor methods of this record class must be included in the reflection configuration` | GraalVM 25 will not call `Class.getRecordComponents()` unless **every** accessor of that record is registered. Nested record DTOs (domain-util `FlowResponseDTO`) fail one type at a time. | Register the **whole record type** (`allDeclaredConstructors`, `allPublicMethods`, `allDeclaredFields`, `allRecordComponents` if the metadata format accepts it) **and** every nested record it returns. Extract records from the jar with `javap` (`extends java.lang.Record`). |
 | Native binary starts then `/health` connection refused | Process **exited**. Logs are on stdout | Capture stdout/stderr; do not debug port binding first |
-| `nativeCompile` / `native-image` **exit 137**, last log `[4/8] Parsing methods` at several GB | Kernel **SIGKILL** (OOM). Builder used all cores | `-H:NumberOfThreads=4 -J-Xmx6g`, drop `--verbose`, `--no-daemon`, free RAM. Not a source/Flyway bug |
+| `nativeCompile` / `native-image` **exit 137**, last log `[4/8] Parsing methods` at several GB, no Java exception | Kernel **SIGKILL**. Builder used all cores | `-H:NumberOfThreads=2 -J-Xmx10g` (or lower Xmx if the machine is smaller), drop `--verbose`, `--no-daemon`, free RAM. Not a source/Flyway bug |
+| `nativeCompile` **exit 3**, `Terminating due to java.lang.OutOfMemoryError: Java heap space` at `[6/8] Compiling methods` | Builder JVM hit `-Xmx`. Analysis can finish under 6g; compiling needs more | **Raise** `-J-Xmx` to 10g and drop threads to 2. Do **not** shrink the heap (that is the 137 playbook). Not a source/Flyway/metadata bug |
 | `SqliteJdbcFeature class not found` | Fat/shaded JAR dropped multi-release classes | Native-image exploded classpath, not a fat JAR |
 | Logback “Could NOT find resource [logback.xml]” then Boot banner | Usually harmless (basic configurator). Real failure is the next exception | Keep reading |
 
@@ -426,3 +445,9 @@ must surface the chosen port.
   still requires **every accessor** of each concrete record type
   (`FlowResponseDTO` and nested records). Extract with `javap`
   (`extends java.lang.Record`).
+- Do not treat `native-image` **exit 3** (`Java heap space` at
+  `[6/8] Compiling methods`) as exit **137**. Raising threads-cap / lowering
+  `-J-Xmx` to 6g is what *causes* the exit-3 OOM. Raise `-J-Xmx` (10g) and
+  keep threads at 2.
+- Do not assume 6g is enough because `[2/8] Performing analysis` finished
+  under 5g. Compiling methods peaks higher.
