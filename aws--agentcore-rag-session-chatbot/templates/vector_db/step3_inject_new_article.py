@@ -74,14 +74,16 @@ def strip_encoded_diagram_payloads(text: str) -> tuple[str, int]:
 
 
 # Summariser section headings, e.g. `## p1`, `## p13-16`. These are the LLM's
-# grouping of the PDF — the page range a reader should open. `<!-- page N -->`
-# markers inside original_text are extraction scaffolding from pdf_pages.py and
-# are ignored: they name the printed page a fragment came from, not the range
-# the summary is about.
+# grouping of the PDF — the page range a reader should open.
 SECTION_HEADING_RE = re.compile(
     r"^## p(\d+)(?:-(\d+))?[ \t]*$",
     re.MULTILINE | re.IGNORECASE,
 )
+
+# Extraction markers from pdf_pages.py. They name the printed page a fragment
+# starts on, which is more precise than the heading range but is not the
+# summariser's grouping. Stored separately as metadata "page".
+PAGE_MARKER_RE = re.compile(r"<!--\s*page\s+(\d+)\s*-->", re.IGNORECASE)
 
 
 def build_section_index(text: str) -> list[tuple[int, str]]:
@@ -151,6 +153,33 @@ def page_range_for(text: str, original_text: str, index: list[tuple[int, str]]) 
     return str(lo) if lo == hi else f"{lo}-{hi}"
 
 
+def exact_page_for(original_text: str, source_text: str = "") -> str:
+    """Printed page this fragment starts on, or "".
+
+    Prefer the first `<!-- page N -->` still inside the chunk. The chunker often
+    drops those comments, so fall back to the last marker in the source at or
+    before this text. That is the same positional rule as headings, but on
+    extraction markers — optional precision, not the section range.
+    """
+    m = PAGE_MARKER_RE.search(original_text or "")
+    if m:
+        return m.group(1)
+    if not source_text or not original_text:
+        return ""
+    start = source_text.find(original_text)
+    if start < 0:
+        probe = original_text[:200]
+        start = source_text.find(probe)
+        if start < 0:
+            return ""
+    page = ""
+    for m in PAGE_MARKER_RE.finditer(source_text):
+        if m.start() > start:
+            break
+        page = m.group(1)
+    return page
+
+
 class CustomDocument(TypedDict):
     tags: str
     title: str
@@ -186,6 +215,9 @@ class Chunk(BaseModel):
             "pdf-filepath": document.get("pdf_filepath") or "",
             "page_range": page_range_for(
                 document.get("text") or "", self.original_text, section_index or []
+            ),
+            "page": exact_page_for(
+                self.original_text, document.get("text") or ""
             ),
         }
         return Result(page_content=self.headline + "\n\n" + self.summary + "\n\n" + self.original_text, metadata=metadata)

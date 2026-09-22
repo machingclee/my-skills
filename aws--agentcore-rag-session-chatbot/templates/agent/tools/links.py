@@ -48,6 +48,14 @@ def first_page(page_range: str) -> str:
     return token if token.isdigit() else ""
 
 
+def open_page(page_range: str = "", page: str = "") -> str:
+    """Page the PDF should open at: exact marker page, else the start of the range."""
+    token = (page or "").strip()
+    if token.isdigit():
+        return token
+    return first_page(page_range)
+
+
 _PAGE_SUMMARY_SUFFIX = re.compile(r"\s*\(page summary\)\s*$", re.IGNORECASE)
 
 
@@ -61,14 +69,26 @@ def citation_title(title: str) -> str:
     return _PAGE_SUMMARY_SUFFIX.sub("", unescape_pg_math(title)).strip()
 
 
-def pdf_chip_label(page_range: str = "") -> str:
-    """Chip text: `PDF` or `PDF · page 45` / `PDF · page 7-10`."""
-    if not page_range:
-        return "PDF"
-    return f"PDF · page {page_range}"
+def pdf_chip_label(page_range: str = "", page: str = "") -> str:
+    """Chip text: `PDF`, `PDF · page 40-45`, or `PDF · page 40-45 · p.45`.
+
+    `page_range` is the summariser heading (`## p40-45`). `page` is the first
+    `<!-- page N -->` in the chunk — the printed page this fragment starts on.
+    The exact page is appended only when it adds information (it differs from
+    the start of the range).
+    """
+    if page_range:
+        label = f"PDF · page {page_range}"
+        exact = (page or "").strip()
+        if exact.isdigit() and exact != first_page(page_range):
+            label += f" · p.{exact}"
+        return label
+    if (page or "").strip().isdigit():
+        return f"PDF · page {page.strip()}"
+    return "PDF"
 
 
-def pdf_chip(pdf_filepath: str, page_range: str = "") -> str:
+def pdf_chip(pdf_filepath: str, page_range: str = "", page: str = "") -> str:
     """Markdown link for an article's source PDF, or "" when it has none.
 
     The path is percent-encoded because some filenames contain non-ASCII, and a
@@ -76,32 +96,34 @@ def pdf_chip(pdf_filepath: str, page_range: str = "") -> str:
     in files/ must not contain spaces — a literal space terminates the
     destination.
 
-    A page range, when known, rides on the label: it is the part of the PDF that
-    matched the question, which is what makes the link worth clicking. The
-    destination also carries `#page=N` so the browser opens that page.
+    A page range, when known, rides on the label. An exact `<!-- page N -->`
+    page, when known, is the open-at target (`#page=N`) and, if it is not
+    already the start of the range, appears as ` · p.N` on the chip.
 
     Prefixed with ` · ` so the citation reads `Title · PDF · page N`.
     """
     if not pdf_filepath:
         return ""
     href = quote(pdf_filepath, safe="/")
-    page = first_page(page_range)
-    if page:
-        href = f"{href}#page={page}"
-    return f" · [{pdf_chip_label(page_range)}]({href})"
+    target = open_page(page_range, page)
+    if target:
+        href = f"{href}#page={target}"
+    return f" · [{pdf_chip_label(page_range, page)}]({href})"
 
 
-def article_link(title: str, slug: str, pdf_filepath: str, page_range: str = "") -> str:
+def article_link(
+    title: str,
+    slug: str,
+    pdf_filepath: str,
+    page_range: str = "",
+    page: str = "",
+) -> str:
     """The complete markdown citation for one article.
 
-    Returned as a finished string on purpose: the agent copies it verbatim
-    rather than relaying structured fields, which it does unreliably — page
-    ranges were being dropped in transit when they travelled as an object key.
-
-    Example: `[OCPI 2.2.1-d2]({{ARTICLE_ROUTE_PREFIX}}/slug) · [PDF · page 45](/files/x.pdf#page=45)`
+    Example: `[Title]({{ARTICLE_ROUTE_PREFIX}}/slug) · [PDF · page 40-45 · p.45](/files/x.pdf#page=45)`
     """
     text = citation_title(title)
     return (
         f"[{text}]({{ARTICLE_ROUTE_PREFIX}}/{slug or title_to_route_id(text)})"
-        f"{pdf_chip(pdf_filepath, page_range)}"
+        f"{pdf_chip(pdf_filepath, page_range, page)}"
     )
