@@ -73,29 +73,52 @@ def strip_encoded_diagram_payloads(text: str) -> tuple[str, int]:
     return cleaned, stripped
 
 
-PAGE_MARKER_RE = re.compile(r"<!--\s*page\s+(\d+)\s*-->", re.IGNORECASE)
+# Summariser section headings, e.g. `## p1`, `## p13-16`. These are the LLM's
+# grouping of the PDF — the page range a reader should open. `<!-- page N -->`
+# markers inside original_text are extraction scaffolding from pdf_pages.py and
+# are ignored: they name the printed page a fragment came from, not the range
+# the summary is about.
+SECTION_HEADING_RE = re.compile(
+    r"^## p(\d+)(?:-(\d+))?[ \t]*$",
+    re.MULTILINE | re.IGNORECASE,
+)
 
 
-def build_page_index(text: str) -> list[tuple[int, int]]:
-    """[(char offset, page number)] for every <!-- page N --> marker, in order."""
-    return [(m.start(), int(m.group(1))) for m in PAGE_MARKER_RE.finditer(text)]
+def build_section_index(text: str) -> list[tuple[int, str]]:
+    """[(char offset, '1-6' | '14')] for every `## pN` / `## pN-M` heading."""
+    index: list[tuple[int, str]] = []
+    for m in SECTION_HEADING_RE.finditer(text):
+        first, last = m.group(1), m.group(2)
+        index.append((m.start(), f"{first}-{last}" if last else first))
+    return index
 
 
-def page_range_for(text: str, original_text: str, index: list[tuple[int, int]]) -> str:
-    """The page range a chunk covers — "7-10", "7", or "" when it cannot be placed.
+def _range_bounds(page_range: str) -> tuple[int, int] | None:
+    token = (page_range or "").strip()
+    if not token:
+        return None
+    parts = token.split("-", 1)
+    try:
+        lo = int(parts[0])
+        hi = int(parts[1]) if len(parts) == 2 else lo
+    except ValueError:
+        return None
+    return (lo, hi) if lo <= hi else (hi, lo)
 
-    The chunker drops the summariser's `## p<range>` headings, so the range is
-    recovered from position instead: locate the chunk in the source, then read the
-    page of the last marker at or before each end. That still works when the chunk
-    carries no marker of its own, which is the common case for a chunk that begins
-    partway down a page — those are the majority once a document is re-chunked.
+
+def page_range_for(text: str, original_text: str, index: list[tuple[int, str]]) -> str:
+    """The summariser section a chunk sits in — "7-10", "7", or "".
+
+    Locate the chunk in the source, then read the last `## pN-M` heading at or
+    before each end. A chunk that only contains fenced original_text still
+    resolves, because that fence lives under its section heading. If the chunk
+    straddles two sections (overlap), the two ranges are merged.
     """
     if not index or not original_text:
         return ""
 
     start = text.find(original_text)
     if start < 0:
-        # The model may have altered whitespace mid-chunk; fall back to a prefix.
         probe = original_text[:200]
         start = text.find(probe)
         if start < 0:
@@ -104,21 +127,28 @@ def page_range_for(text: str, original_text: str, index: list[tuple[int, int]]) 
     else:
         end = start + len(original_text)
 
-    def page_at(offset: int) -> int | None:
-        page = None
-        for position, number in index:
+    def range_at(offset: int) -> str:
+        rng = ""
+        for position, value in index:
             if position > offset:
                 break
-            page = number
-        return page
+            rng = value
+        return rng
 
-    first = page_at(start)
-    last = page_at(max(start, end - 1))
-    if first is None:
+    first = range_at(start)
+    last = range_at(max(start, end - 1))
+    if not first:
         return ""
-    if last is None or last == first:
-        return str(first)
-    return f"{first}-{last}"
+    if not last or last == first:
+        return first
+    a = _range_bounds(first)
+    b = _range_bounds(last)
+    if a is None:
+        return first
+    if b is None:
+        return first
+    lo, hi = min(a[0], b[0]), max(a[1], b[1])
+    return str(lo) if lo == hi else f"{lo}-{hi}"
 
 
 class CustomDocument(TypedDict):
@@ -146,7 +176,7 @@ class Chunk(BaseModel):
     original_text: str = Field(
         description="The original text of this chunk from the provided document, exactly as is, not changed in any way")
 
-    def as_result(self, document, page_index: list[tuple[int, int]] | None = None):
+    def as_result(self, document, section_index: list[tuple[int, str]] | None = None):
         metadata = {
             "title": document["title"],
             "tags": document["tags"],
@@ -155,7 +185,7 @@ class Chunk(BaseModel):
             "content_hash": document.get("content_hash") or "",
             "pdf-filepath": document.get("pdf_filepath") or "",
             "page_range": page_range_for(
-                document.get("text") or "", self.original_text, page_index or []
+                document.get("text") or "", self.original_text, section_index or []
             ),
         }
         return Result(page_content=self.headline + "\n\n" + self.summary + "\n\n" + self.original_text, metadata=metadata)
@@ -314,7 +344,7 @@ class ArticleInjector:
         size = self.average_chunk_size
         overlap = max(200, size // 4)
         results: list[Result] = []
-        index = build_page_index(text)
+        index = build_section_index(text)
         start = 0
         part = 0
         while start < len(text):
@@ -343,7 +373,7 @@ class ArticleInjector:
             original_text=document["text"] or document["title"],
         )
         print("Skipped LLM chunker for encoded draw.io payload")
-        return [chunk.as_result(document, build_page_index(document["text"] or ""))]
+        return [chunk.as_result(document, build_section_index(document["text"] or ""))]
 
     def process_document(self, document: CustomDocument) -> list[Result]:
         """Process document into chunks using DeepSeek with retry on timeout / truncated JSON.
@@ -426,7 +456,7 @@ class ArticleInjector:
                     f"Processing document with {self.chunk_model} "
                     f"(attempt {attempt + 1}/{max_retries})...")
                 doc_as_chunks = self._request_chunks(messages)
-                index = build_page_index(document["text"] or "")
+                index = build_section_index(document["text"] or "")
                 return [chunk.as_result(document, index) for chunk in doc_as_chunks]
             except Exception as e:
                 error_msg = str(e).lower()

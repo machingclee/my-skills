@@ -52,7 +52,7 @@ fill env files in the **target** repo.
 {{ARTICLES_DIR}}/  (YAML: title, description, slug, section, tags, wip,
                     optional pdf-filepath — no spaces in the filename)
     │  optional: PDF → paged summary (pdf--into-paged-summary) with
-    │            <!-- page N --> markers and ## pN-M headings
+    │            ## pN-M headings (page_range). <!-- page N --> is ignored.
     ▼
 vector_db/sync_articles.py
     fingerprint = sha256(source_path + NUL + raw file bytes)
@@ -265,11 +265,13 @@ wip: false
 pdf-filepath: /files/ocpi-2-2-1-d2.pdf   # optional; NO spaces in the filename
 ```
 
-A PDF-sourced article is a paged summary (`## pN-M` plus `<!-- page N -->`
-markers from `pdf--into-paged-summary`). Inject recovers `page_range` from
-those markers and stores `pdf-filepath` on every chunk. Filenames in
-`files/` must be hyphenated — a space terminates a markdown link
-destination, and inject raises if `pdf-filepath` contains one.
+A PDF-sourced article is a paged summary (`## pN-M` headings from
+`pdf--into-paged-summary`). Inject recovers `page_range` from those
+headings — they are the LLM's grouping of the PDF. `<!-- page N -->`
+markers inside original_text are extraction scaffolding and are ignored.
+`pdf-filepath` is stored on every chunk. Filenames in `files/` must be
+hyphenated — a space terminates a markdown link destination, and inject
+raises if `pdf-filepath` contains one.
 
 Inject writes `source_path`, `content_hash`, `pdf-filepath`, and
 `page_range` onto every chunk. After `create_table.py`, sync the corpus:
@@ -324,9 +326,9 @@ Prefer **sync** over one-off inject/delete. Each inject stores `metadata.source_
 `metadata.pdf-filepath` and `metadata.page_range` are injected too. The
 filepath is carried, not compared on its own: because the hash covers raw
 file bytes, adding or editing it re-injects the article like any other
-frontmatter change. `page_range` is per *chunk* (recovered from
-`<!-- page N -->` markers) — a title-keyed lookup cannot recover it, which
-is why there is no `article_links` tool.
+frontmatter change. `page_range` is per *chunk* (recovered from `## pN-M`
+headings) — a title-keyed lookup cannot recover it, which is why there is
+no `article_links` tool.
 
 ### PDF-sourced articles
 
@@ -446,7 +448,7 @@ templates/
     tools/links.py              citation_title(); pdf_chip() ` · [PDF · page N]`; `#page=N`
     tools/__init__.py           no article_links
   vector_db/      ← pgvector CLI (schema-aware)
-    step3_inject_new_article.py pdf-filepath + page_range from <!-- page N -->
+    step3_inject_new_article.py pdf-filepath + page_range from ## pN-M
   session-lambda/ ← Express + serverless.yml IAM
   frontend/       ← FloatingChatBot + chatSlice + ragApi
 ```
