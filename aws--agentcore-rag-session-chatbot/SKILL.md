@@ -49,8 +49,10 @@ fill env files in the **target** repo.
 ## Architecture
 
 ```
-{{ARTICLES_DIR}}/  (YAML: title, description, slug, section, tags, wip)
-    │
+{{ARTICLES_DIR}}/  (YAML: title, description, slug, section, tags, wip,
+                    optional pdf-filepath — no spaces in the filename)
+    │  optional: PDF → paged summary (pdf--into-paged-summary) with
+    │            <!-- page N --> markers and ## pN-M headings
     ▼
 vector_db/sync_articles.py
     fingerprint = sha256(source_path + NUL + raw file bytes)
@@ -58,14 +60,15 @@ vector_db/sync_articles.py
     │
     ▼  --apply  (delete by title, then inject)
 vector_db/inject  →  DeepSeek chunks + Azure ada-002 (1536-d)
-    metadata: title, slug, tags, source_path, content_hash
+    metadata: title, slug, tags, source_path, content_hash,
+              pdf-filepath, page_range   (page_range is per *chunk*)
     │
     ▼
 PostgreSQL  schema {{POSTGRES_SCHEMA}}.embeddings
     │
     ▼
 app/{{AGENT_NAME}}/   AgentCore AGUI  CUSTOM_JWT
-    rephrase → find_tags → search → rerank → article_links → answer
+    rephrase → find_tags → search → rerank → copy `link` verbatim → answer
     S3SessionManager → s3://{{S3_SESSION_BUCKET}}/sessions/{uuid}/...
     │
     ▼
@@ -73,6 +76,7 @@ session-lambda  GET /api/sessions/:id/messages   (IAM GetObject/ListBucket)
     │
     ▼
 frontend FloatingChatBot  Amplify signIn(dummy bot) + SSE /invocations
+    CustomMarkdown renders /files/*.pdf[#page=N] as a chip from {children}
 ```
 
 The S3 bucket is **private**. Lambda IAM is in `serverless.yml`. AgentCore
@@ -83,7 +87,8 @@ write access is `attach-s3-policy.sh` on the **runtime role** after deploy
 
 ```
 <repo>/
-  markdowns/                         ← corpus
+  markdowns/                         ← corpus (optional pdf-filepath frontmatter)
+  files/                             ← source PDFs; hyphenated names, no spaces
   vector_db/                         ← this skill's templates/vector_db
   agentcore/                         ← AgentCore CLI project (nested)
     AGENTS.md
@@ -157,6 +162,7 @@ From `~/.claude/skills/aws--agentcore-rag-session-chatbot/templates`:
 SKILL=~/.claude/skills/aws--agentcore-rag-session-chatbot/templates
 cp -R "$SKILL/vector_db" <repo>/vector_db
 cp -R "$SKILL/agent/." <agentcore-root>/app/{{AGENT_NAME}}/
+rm -f <agentcore-root>/app/{{AGENT_NAME}}/tools/article_links.py   # tombstone; do not ship
 cp -R "$SKILL/session-lambda" <repo>/agentcore-session-retrieval-lambda
 cp -R "$SKILL/frontend/FloatingChatBot" <frontendDir>/src/components/FloatingChatBot
 cp "$SKILL/frontend/chatSlice.ts" <frontendDir>/src/redux/slices/chatSlice.ts
@@ -170,7 +176,8 @@ If there is no AgentCore project yet, run `agentcore create` first (or
 
 ### 2. Substitute placeholders
 
-Search-replace the table above. Empty `TAGS = []` until `get_tags.py` runs.
+Search-replace the table above. `TAGS = []` stays empty until `get_tags.py` runs —
+a plain `sync_articles.py` run refreshes it from frontmatter.
 
 ### 3. Frontend wiring (existing app)
 
@@ -182,6 +189,14 @@ Search-replace the table above. Empty `TAGS = []` until `get_tags.py` runs.
 - Dependencies: `aws-amplify`, `@mui/material`, `@mui/icons-material`,
   `react-icons`, `sass` (if SCSS). Markdown renderer: swap
   `CustomMarkdown` import if the host app uses a different component.
+- PDF chips: the agent emits
+  `[Title]({{ARTICLE_ROUTE_PREFIX}}/slug) · [PDF · page 7-10](/files/<name>.pdf#page=7)`
+  (no `(page summary)` on the title; `page` not `pp.`). The renderer must
+  use `{children}` as the chip label (not a hardcoded `"PDF"`) and treat
+  `/files/*.pdf` **and** `/files/*.pdf#page=N` as a PDF.
+  `whitespace-nowrap` on the chip so the range does not wrap. Rewrite
+  stored older citations on render: strip `(page summary)`, turn `pp.`
+  into `page`, and put ` · ` between the article link and the chip.
 - Frontend `.env` (gitignored), names only until deploy:
 
 ```
@@ -247,9 +262,17 @@ slug: ...          # must match frontend /docs/:slug
 section: ...
 tags: [..]
 wip: false
+pdf-filepath: /files/ocpi-2-2-1-d2.pdf   # optional; NO spaces in the filename
 ```
 
-Inject writes `source_path` and `content_hash` onto every chunk. After `create_table.py`, sync the corpus:
+A PDF-sourced article is a paged summary (`## pN-M` plus `<!-- page N -->`
+markers from `pdf--into-paged-summary`). Inject recovers `page_range` from
+those markers and stores `pdf-filepath` on every chunk. Filenames in
+`files/` must be hyphenated — a space terminates a markdown link
+destination, and inject raises if `pdf-filepath` contains one.
+
+Inject writes `source_path`, `content_hash`, `pdf-filepath`, and
+`page_range` onto every chunk. After `create_table.py`, sync the corpus:
 
 ```bash
 uv run --directory vector_db sync_articles.py                  # dry-run
@@ -296,18 +319,40 @@ one. Put the invoke URL in `VITE_AGENT_ENDPOINT`.
 
 ## Operations
 
-Prefer **sync** over one-off inject/delete. Each inject stores `metadata.source_path` and `metadata.content_hash` (`sha256(source_path + NUL + raw file bytes)`). Filename, frontmatter, and body all change the hash. Any mismatch is delete + re-inject.
+Prefer **sync** over one-off inject/delete. Each inject stores `metadata.source_path` and `metadata.content_hash` (`sha256(source_path + NUL + raw file bytes)`). Filename, frontmatter (including `pdf-filepath`), and body all change the hash. Any mismatch is delete + re-inject.
+
+`metadata.pdf-filepath` and `metadata.page_range` are injected too. The
+filepath is carried, not compared on its own: because the hash covers raw
+file bytes, adding or editing it re-injects the article like any other
+frontmatter change. `page_range` is per *chunk* (recovered from
+`<!-- page N -->` markers) — a title-keyed lookup cannot recover it, which
+is why there is no `article_links` tool.
+
+### PDF-sourced articles
+
+1. Put the PDF in `files/` with a **hyphenated** name
+   (`json-request-example-ocpp-j-1.6-specification.pdf`, not
+   `json request example …pdf`).
+2. Produce a paged summary (`pdf--into-paged-summary`) into `markdowns/`.
+3. Set `pdf-filepath: /files/<hyphenated-name>.pdf` in frontmatter.
+4. `sync_articles.py --apply` (or inject the one file). New / changed PDF
+   articles pick up `page_range` automatically; renaming a PDF in `files/`
+   without updating frontmatter leaves citations pointing at a 404.
+
+Changing only the PDF binary (not the markdown) does **not** re-embed —
+the hash is of the markdown file. Re-run the paged-summary step, then sync.
 
 | Intent | Command |
 |---|---|
 | Sync dry-run | `uv run --directory vector_db sync_articles.py` |
 | First-time fingerprints | `uv run --directory vector_db sync_articles.py --backfill-hashes` |
 | Apply add / change / remove | `uv run --directory vector_db sync_articles.py --apply` |
+| Apply without the tag deploy | `uv run --directory vector_db sync_articles.py --apply --no-deploy` |
 | Title-only missing | `uv run --directory vector_db check_missing.py` |
 | Inject one file | `sh vector_db/inject_new_article.sh "<abs-path>"` |
 | Latest | `uv run --directory vector_db get_latest_articles.py` |
 | Delete (dry-run) | `sh vector_db/remove_old_article.sh <prefix>` then `--yes` |
-| Tags + deploy | `uv run --directory vector_db get_tags.py` then `agentcore deploy -y` |
+| Tags only, no vectors | `uv run --directory vector_db get_tags.py` then `agentcore deploy -y` |
 
 Resolve files by filename, `slug`, path, or title — not a YAML `id`. Ignore `*-tc.md`. Skip `wip: true` (and drop vectors if a previously injected article flips to WIP).
 
@@ -342,8 +387,22 @@ uv run --directory vector_db sync_articles.py --apply
 ```
 
 `--apply` refuses if any articles are still unfingerprinted — backfill first.
+It also refreshes the agent's tag list and deploys AgentCore when that list
+changed (step 4). Pass `--no-deploy` to leave the deploy to you.
 
-4. If YAML `tags` changed, run `get_tags.py` and deploy AgentCore.
+4. Tags are automatic — no separate command. Every run checks the agent's `TAGS`
+list against `{{ARTICLES_DIR}}/` frontmatter. `--apply` rewrites
+`agentcore/app/{{AGENT_NAME}}/tags.py` and `tools/tags.py`, but only when the
+content actually differs, and then runs `agentcore deploy -y` from `agentcore/`
+so `find_tags` sees the new tags; an unchanged sync never triggers a deploy.
+Expect one of:
+
+- `tags.py unchanged (N tags) ✓` — nothing to do
+- `tags.py would change (N tags)` (dry-run) — `--apply` will rewrite the files
+- `tags.py would change` → rewrite, then the deploy line
+
+A failed deploy prints the manual command and does **not** roll back the vector
+changes — re-run `cd agentcore && agentcore deploy -y`.
 
 Do **not** hook sync into the docs-site GitHub Actions workflow unless that job has Postgres / Azure / DeepSeek secrets.
 
@@ -360,6 +419,19 @@ Do **not** hook sync into the docs-site GitHub Actions workflow unless that job 
 8. Never commit `.env`, `.env.local`, or filled `envVars` values.
 9. Session Lambda does not create the AgentCore runtime role.
 10. Encoded draw.io / diagrams.net `#R` / `#U` URL payloads are stripped before DeepSeek. The hash still uses raw file bytes, so a diagram-only edit still counts as `changed`.
+11. Do **not** register a title-keyed `article_links` tool. `rerank_chunks`
+    already returns a finished `link` (`[Title](…) · [PDF · page N](/files/…#page=N)`).
+    The model copies that string; a second builder made it drop the pages.
+12. `rerank_chunks` splits stored content on two blank lines (headline /
+    summary / original_text), **not** `"###"`. It hands the agent a full
+    summary plus the first **2000 characters** of `original_text`
+    (`EXCERPT_CHARS`), cut on a word boundary. The ranking prompt still
+    truncates summaries to 200 chars; the returned summary does not.
+13. `page_range` is re-read from the row by chunk id. The model drops it
+    when relaying the `articles` list between search and rerank — do not
+    trust that relay.
+14. `files/` PDF names must not contain spaces. Inject refuses a
+    `pdf-filepath` that does. Non-ASCII is fine (percent-encoded in the chip).
 
 ## Template files
 
@@ -369,7 +441,12 @@ templates/
   agentcore-envvars.json
   attach-s3-policy.sh
   agent/          ← Strands AG-UI RAG agent
+    main.py                     system prompt: copy `link` verbatim; two answer shapes
+    tools/rerank_chunks.py      2000-char excerpt; page_range from the row; finished `link`
+    tools/links.py              citation_title(); pdf_chip() ` · [PDF · page N]`; `#page=N`
+    tools/__init__.py           no article_links
   vector_db/      ← pgvector CLI (schema-aware)
+    step3_inject_new_article.py pdf-filepath + page_range from <!-- page N -->
   session-lambda/ ← Express + serverless.yml IAM
   frontend/       ← FloatingChatBot + chatSlice + ragApi
 ```

@@ -38,23 +38,38 @@ def format_tags_py(tags: list[str]) -> str:
     return f"TAGS = [\n        {inner},\n]\n"
 
 
-def write_tags_files(tags: list[str]) -> None:
-    content = format_tags_py(tags)
-    for path in TAGS_FILES:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(content, encoding="utf-8")
-        print(f"Wrote {path}")
-
-
-def main() -> None:
+def collect_tags() -> list[str]:
     all_tags: set[str] = set()
     for md_file in sorted(ARTICLES_DIR.rglob("*.md")):
         if md_file.name.endswith("-tc.md"):
             continue
         all_tags.update(extract_tags(md_file))
+    return sorted(all_tags)
 
-    tags = sorted(all_tags)
-    write_tags_files(tags)
+
+def sync_tags(*, dry_run: bool = False) -> tuple[list[str], list[Path]]:
+    """Refresh the TAGS_FILES from {{ARTICLES_DIR}}/ frontmatter.
+
+    Returns the sorted tags and the files that differ from the current content.
+    With dry_run, nothing is written.
+    """
+    tags = collect_tags()
+    content = format_tags_py(tags)
+    changed = [
+        path
+        for path in TAGS_FILES
+        if not path.exists() or path.read_text(encoding="utf-8") != content
+    ]
+    if not dry_run:
+        for path in changed:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(content, encoding="utf-8")
+            print(f"Wrote {path}")
+    return tags, changed
+
+
+def main() -> None:
+    tags, _ = sync_tags()
     print(json.dumps(tags))
 
 

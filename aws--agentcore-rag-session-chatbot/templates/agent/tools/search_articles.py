@@ -94,6 +94,10 @@ def search_articles(
             "title": title,
             "tags": tag_list,
             "score": round(1.0 - float(distance), 4),
+            # Pages of the source PDF this particular chunk came from. Belongs to
+            # the matching chunk, not the article. rerank_chunks re-reads it from
+            # the row by id — do not rely on the model to relay this field.
+            "page_range": metadata.get("page_range") or "",
         })
 
         if len(articles) >= top_k:

@@ -1,14 +1,21 @@
 """Compare markdowns/ against {{POSTGRES_SCHEMA}}.embeddings and plan add / rename / change / remove.
 
+Tags: every run checks the agent's tag list against markdowns/ frontmatter. The
+dry-run reports drift; --apply rewrites agentcore/app/{{AGENT_NAME}}/tags.py
+(+ tools/tags.py) and deploys AgentCore, but only when the content actually
+changed (skip the deploy with --no-deploy).
+
 Usage:
   uv run --directory vector_db sync_articles.py                  # dry-run
   uv run --directory vector_db sync_articles.py --backfill-hashes
   uv run --directory vector_db sync_articles.py --apply
+  uv run --directory vector_db sync_articles.py --apply --no-deploy
 """
 
 from __future__ import annotations
 
 import json
+import subprocess
 import sys
 from dataclasses import asdict, dataclass
 
@@ -19,7 +26,8 @@ from article_fingerprint import (
     delete_by_title,
     load_db_articles,
 )
-from env import pg_connect
+from env import ROOT, pg_connect
+from get_tags import sync_tags
 
 
 @dataclass
@@ -287,6 +295,37 @@ def apply_plan(items: list[PlanItem], files: list[FileArticle]) -> None:
         injector.close()
 
 
+def refresh_tags(*, dry_run: bool, deploy: bool) -> None:
+    """Refresh the agent's TAGS list from markdowns/ frontmatter.
+
+    Writes only when the content changed, and deploys AgentCore only when it did,
+    so a plain sync does not trigger a slow deploy.
+    """
+    print("\n── Article tags ──")
+    tags, changed = sync_tags(dry_run=dry_run)
+    if not changed:
+        print(f"  tags.py unchanged ({len(tags)} tags) ✓")
+        return
+    if dry_run:
+        print(f"  tags.py would change ({len(tags)} tags) — applied by --apply")
+        return
+
+    print(f"  {len(tags)} tags — agent needs a deploy to see them")
+    hint = "cd agentcore && agentcore deploy -y"
+    if not deploy:
+        print(f"  Deploy skipped (--no-deploy). Run: {hint}")
+        return
+
+    print("\n── Deploying AgentCore ──")
+    result = subprocess.run(
+        ["agentcore", "deploy", "-y"], cwd=ROOT / "agentcore", check=False
+    )
+    if result.returncode:
+        print(f"  ⚠  deploy failed (exit {result.returncode}). Run manually: {hint}")
+    else:
+        print("  deployed ✓")
+
+
 def main() -> None:
     args = set(sys.argv[1:])
     if "--help" in args or "-h" in args:
@@ -296,6 +335,7 @@ def main() -> None:
     apply = "--apply" in args
     backfill = "--backfill-hashes" in args
     as_json = "--json" in args
+    deploy = "--no-deploy" not in args
     if apply and backfill:
         print("Use either --apply or --backfill-hashes, not both.")
         sys.exit(1)
@@ -332,11 +372,14 @@ def main() -> None:
 
     if apply:
         actionable = [i for i in items if i.action in ("added", "changed", "removed")]
-        if not actionable:
-            return
-        print("\n── Applying ──")
-        apply_plan(items, files)
-        print("\nDone. ✓")
+        if actionable:
+            print("\n── Applying ──")
+            apply_plan(items, files)
+            print("\nDone. ✓")
+        refresh_tags(dry_run=False, deploy=deploy)
+        return
+
+    refresh_tags(dry_run=True, deploy=deploy)
 
 
 if __name__ == "__main__":

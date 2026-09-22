@@ -73,6 +73,54 @@ def strip_encoded_diagram_payloads(text: str) -> tuple[str, int]:
     return cleaned, stripped
 
 
+PAGE_MARKER_RE = re.compile(r"<!--\s*page\s+(\d+)\s*-->", re.IGNORECASE)
+
+
+def build_page_index(text: str) -> list[tuple[int, int]]:
+    """[(char offset, page number)] for every <!-- page N --> marker, in order."""
+    return [(m.start(), int(m.group(1))) for m in PAGE_MARKER_RE.finditer(text)]
+
+
+def page_range_for(text: str, original_text: str, index: list[tuple[int, int]]) -> str:
+    """The page range a chunk covers — "7-10", "7", or "" when it cannot be placed.
+
+    The chunker drops the summariser's `## p<range>` headings, so the range is
+    recovered from position instead: locate the chunk in the source, then read the
+    page of the last marker at or before each end. That still works when the chunk
+    carries no marker of its own, which is the common case for a chunk that begins
+    partway down a page — those are the majority once a document is re-chunked.
+    """
+    if not index or not original_text:
+        return ""
+
+    start = text.find(original_text)
+    if start < 0:
+        # The model may have altered whitespace mid-chunk; fall back to a prefix.
+        probe = original_text[:200]
+        start = text.find(probe)
+        if start < 0:
+            return ""
+        end = start + len(probe)
+    else:
+        end = start + len(original_text)
+
+    def page_at(offset: int) -> int | None:
+        page = None
+        for position, number in index:
+            if position > offset:
+                break
+            page = number
+        return page
+
+    first = page_at(start)
+    last = page_at(max(start, end - 1))
+    if first is None:
+        return ""
+    if last is None or last == first:
+        return str(first)
+    return f"{first}-{last}"
+
+
 class CustomDocument(TypedDict):
     tags: str
     title: str
@@ -80,6 +128,9 @@ class CustomDocument(TypedDict):
     slug: str
     source_path: str
     content_hash: str
+    # Optional link to the source PDF in the repo's files/ dir, straight from the
+    # frontmatter `pdf-filepath` key. Stored in metadata as "pdf-filepath".
+    pdf_filepath: str
 
 
 class Result(BaseModel):
@@ -95,13 +146,17 @@ class Chunk(BaseModel):
     original_text: str = Field(
         description="The original text of this chunk from the provided document, exactly as is, not changed in any way")
 
-    def as_result(self, document):
+    def as_result(self, document, page_index: list[tuple[int, int]] | None = None):
         metadata = {
             "title": document["title"],
             "tags": document["tags"],
             "slug": document.get("slug") or "",
             "source_path": document.get("source_path") or "",
             "content_hash": document.get("content_hash") or "",
+            "pdf-filepath": document.get("pdf_filepath") or "",
+            "page_range": page_range_for(
+                document.get("text") or "", self.original_text, page_index or []
+            ),
         }
         return Result(page_content=self.headline + "\n\n" + self.summary + "\n\n" + self.original_text, metadata=metadata)
 
@@ -177,6 +232,15 @@ class ArticleInjector:
         # Clean up extra whitespace
         text = text.strip()
         source_path = source_path_for(filepath)
+        pdf_filepath = str(blog_post.get("pdf-filepath") or "").strip()
+        # A space in the filename terminates a markdown link destination, so
+        # files/ PDFs are hyphenated. Refuse to store a path that would break
+        # the citation chip.
+        if " " in pdf_filepath:
+            raise ValueError(
+                f"{filepath}: pdf-filepath must not contain spaces "
+                f"(got {pdf_filepath!r}); hyphenate the filename in files/."
+            )
 
         return CustomDocument(
             tags=tags,
@@ -185,6 +249,7 @@ class ArticleInjector:
             slug=slug,
             source_path=source_path,
             content_hash=content_hash_for(filepath, source_path),
+            pdf_filepath=pdf_filepath,
         )
 
     def make_user_prompt(self, document: CustomDocument):
@@ -249,6 +314,7 @@ class ArticleInjector:
         size = self.average_chunk_size
         overlap = max(200, size // 4)
         results: list[Result] = []
+        index = build_page_index(text)
         start = 0
         part = 0
         while start < len(text):
@@ -259,7 +325,7 @@ class ArticleInjector:
                 summary=f"Excerpt from {document['title']}.",
                 original_text=text[start:end],
             )
-            results.append(chunk.as_result(document))
+            results.append(chunk.as_result(document, index))
             if end >= len(text):
                 break
             start = max(end - overlap, start + 1)
@@ -277,7 +343,7 @@ class ArticleInjector:
             original_text=document["text"] or document["title"],
         )
         print("Skipped LLM chunker for encoded draw.io payload")
-        return [chunk.as_result(document)]
+        return [chunk.as_result(document, build_page_index(document["text"] or ""))]
 
     def process_document(self, document: CustomDocument) -> list[Result]:
         """Process document into chunks using DeepSeek with retry on timeout / truncated JSON.
@@ -302,6 +368,7 @@ class ArticleInjector:
                 slug=document.get("slug") or "",
                 source_path=document.get("source_path") or "",
                 content_hash=document.get("content_hash") or "",
+                pdf_filepath=document.get("pdf_filepath") or "",
             )
             return self._diagram_chunks(diagram_doc)
 
@@ -328,6 +395,7 @@ class ArticleInjector:
                 slug=document.get("slug") or "",
                 source_path=document.get("source_path") or "",
                 content_hash=document.get("content_hash") or "",
+                pdf_filepath=document.get("pdf_filepath") or "",
             )
             results.extend(self._chunk_document(part_doc))
             if end >= len(text):
@@ -358,7 +426,8 @@ class ArticleInjector:
                     f"Processing document with {self.chunk_model} "
                     f"(attempt {attempt + 1}/{max_retries})...")
                 doc_as_chunks = self._request_chunks(messages)
-                return [chunk.as_result(document) for chunk in doc_as_chunks]
+                index = build_page_index(document["text"] or "")
+                return [chunk.as_result(document, index) for chunk in doc_as_chunks]
             except Exception as e:
                 error_msg = str(e).lower()
                 retryable = (
