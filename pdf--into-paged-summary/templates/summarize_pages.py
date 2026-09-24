@@ -7,7 +7,9 @@ Each output file is a sequence of sections, one per page range::
 
     ### summary
 
-    Three worked charging-profile examples. Profile 2 is a TxDefaultProfile ...
+    - Three worked charging-profile examples.
+    - Profile 2 is a TxDefaultProfile that recurs daily at 07:00.
+    - Both examples use the same `connectorId` 1 but differ in `stackLevel`.
 
     ### original_text
 
@@ -25,6 +27,11 @@ itself contains ``` cannot close it early. It is fenced rather than inlined
 because the text carries its own ``#`` headings -- inlined, those would become
 siblings of the ``##`` ranges and destroy the structure. Fencing also keeps the
 text byte-exact, which is the point of the whole pipeline.
+
+Summaries are bullet lists, not prose. Each bullet has to make sense read
+alone, because the summary is what gets quoted and embedded later -- a reader
+meeting one line in a search result should learn something from that line by
+itself, which an opening sentence like "The following ..." never does.
 
 Summaries are cached in ``.summary-cache.json`` beside the output, keyed by
 model + prompt + text, so re-running after a failure (or after adding
@@ -62,21 +69,23 @@ CHUNK_CHAR_BUDGET = 8000
 
 # Bump when the prompt changes, so the cache does not serve summaries written
 # under different instructions.
-PROMPT_VERSION = 1
+PROMPT_VERSION = 2
 
 PROMPT = """\
 You are indexing a technical document for a documentation search system.
 
 Below is the text of pages {page_range} of "{name}".
 
-Summarize what these pages cover in 2-4 sentences, so a reader can decide \
-whether to open them. Say what KIND of content this is (specification section, \
-API reference, parameter table, diagram, example payload, procedure, revision \
-history) and what it is about. Name concrete identifiers, endpoints or message \
-names where they carry the meaning.
+Summarize what these pages cover as 2-5 bullet points, so a reader can decide \
+whether to open them. One line per bullet, each starting with "- "; no nested \
+bullets, no bold, no heading of your own. The first bullet says what KIND of \
+content this is (specification section, API reference, parameter table, \
+diagram, example payload, procedure, revision history) and what it is about; \
+the rest carry the specifics, naming concrete identifiers, endpoints or message \
+names where they carry the meaning. Each bullet must stand on its own -- a \
+reader who sees one line alone should still learn something.
 
-Output only the summary. No heading, no preamble, no commentary on these \
-instructions.
+Output only the bullets. No preamble, no commentary on these instructions.
 
 ---
 {text}"""

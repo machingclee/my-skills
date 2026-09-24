@@ -20,7 +20,10 @@ export interface HistoryApiMessage {
 }
 
 export interface SessionMessagesResult {
+    /** The thread these messages belong to: a session id, or `<parent>:btw:<n>` for a side thread. */
     sessionId: string;
+    /** Present only for a side thread: the session the side question was asked about. */
+    parentSessionId?: string;
     messageCount: number;
     messages: HistoryApiMessage[];
 }
@@ -29,34 +32,80 @@ export type RagTag = { type: "SessionMessages"; id: string };
 
 const KEEP_SESSION_MESSAGES_FOR = 60 * 60 * 24 * 365;
 
+/**
+ * A `/btw` side thread's id — `<parent>:btw:<n>`. This is the single definition of that
+ * format on the frontend: the component mints with it, the endpoint below tags with it,
+ * and it must match `sideThreadId` in the retrieval Lambda's `routes/sessionMessages.ts`
+ * (which builds the same string from `/sessions/:parentId/side/:seq/messages`). See
+ * add-btw.md.
+ */
+export function sideThreadId(parentSessionId: string, sideSeq: number): string {
+    return `${parentSessionId}:btw:${sideSeq}`;
+}
+
+const emptySessionMessages = (sessionId: string): SessionMessagesResult => ({
+    sessionId,
+    messageCount: 0,
+    messages: [],
+});
+
+/**
+ * Shared body of both message endpoints. `sessionId` is the thread the messages belong to
+ * — used for the empty fallback and the unset-base case, which is a silent empty result
+ * rather than an error (no retrieval API configured is a normal local state).
+ */
+async function fetchSessionMessagesAt(url: string, sessionId: string) {
+    if (!SESSION_API_BASE) {
+        return { data: emptySessionMessages(sessionId) };
+    }
+    try {
+        const response = await fetch(url);
+        if (!response.ok) {
+            return { error: { status: response.status, data: await response.text() } };
+        }
+        const json = await response.json();
+        const result =
+            json?.result ??
+            (json?.messages ? json : emptySessionMessages(sessionId));
+        return { data: result as SessionMessagesResult };
+    } catch (error) {
+        return {
+            error: {
+                status: 0,
+                data: error instanceof Error ? error.message : String(error),
+            },
+        };
+    }
+}
+
 export const ragApi = baseApi.injectEndpoints({
     endpoints: (builder) => ({
         getSessionMessages: builder.query<SessionMessagesResult, string>({
             keepUnusedDataFor: KEEP_SESSION_MESSAGES_FOR,
-            queryFn: async (sessionId) => {
-                if (!SESSION_API_BASE) {
-                    return { data: { sessionId, messageCount: 0, messages: [] } };
-                }
-                try {
-                    const response = await fetch(`${SESSION_API_BASE}/sessions/${sessionId}/messages`);
-                    if (!response.ok) {
-                        return { error: { status: response.status, data: await response.text() } };
-                    }
-                    const json = await response.json();
-                    const result =
-                        json?.result ??
-                        (json?.messages ? json : { sessionId, messageCount: 0, messages: [] });
-                    return { data: result };
-                } catch (error) {
-                    return {
-                        error: {
-                            status: 0,
-                            data: error instanceof Error ? error.message : String(error),
-                        },
-                    };
-                }
-            },
+            queryFn: (sessionId) =>
+                fetchSessionMessagesAt(`${SESSION_API_BASE}/sessions/${sessionId}/messages`, sessionId),
             providesTags: (_result, _error, sessionId) => [{ type: "SessionMessages", id: sessionId }],
+        }),
+        /**
+         * One `/btw` side thread's own turns. The panel renders these next to the main
+         * transcript, so the parent's messages are deliberately not merged in — the
+         * Lambda serves only the side prefix (see add-btw.md). Tagged by the side thread
+         * id, which shares the tag *type* with the endpoint above but never its id, so
+         * invalidating one never drops the other's cache.
+         */
+        getSideSessionMessages: builder.query<
+            SessionMessagesResult,
+            { parentSessionId: string; sideSeq: number }
+        >({
+            keepUnusedDataFor: KEEP_SESSION_MESSAGES_FOR,
+            queryFn: ({ parentSessionId, sideSeq }) =>
+                fetchSessionMessagesAt(
+                    `${SESSION_API_BASE}/sessions/${parentSessionId}/side/${sideSeq}/messages`,
+                    sideThreadId(parentSessionId, sideSeq)
+                ),
+            providesTags: (_result, _error, { parentSessionId, sideSeq }) => [
+                { type: "SessionMessages", id: sideThreadId(parentSessionId, sideSeq) },
+            ],
         }),
     }),
 });
@@ -68,7 +117,12 @@ export type AgentStreamRequestBody = {
     state: Record<string, unknown>;
     tools: unknown[];
     context: unknown[];
-    forwardedProps: { userId: string };
+    /**
+     * Passed through to the agent untouched. `sideQuestionOf` marks a `/btw` side
+     * question and carries the thread it is a question *about*; the agent's
+     * session_manager_provider reads the parent transcript instead of starting empty.
+     */
+    forwardedProps: { userId: string; sideQuestionOf?: string };
 };
 
 export async function fetchAgentStream(

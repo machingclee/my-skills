@@ -369,3 +369,223 @@
 .floating-chatbot.dark .chat-history-empty {
   color: #718096;
 }
+
+/* ── /btw side question panel ─────────────────────────────────────────── */
+
+/*
+ * The panel is an overlay, not a column. Laid out as a grid/split it would take its
+ * width out of the main transcript, so every open and close re-wrapped the whole
+ * conversation and moved its scroll anchor. Instead the transcript keeps the window's
+ * full width and the panel floats above its right-hand side, which means the only
+ * thing that ever moves is the panel itself.
+ *
+ * The body wrapper exists to bound the overlay: it ends at the top of the main
+ * composer, so the composer stays fully visible (and full width) while the panel is
+ * open. The header is shared — one bar spans the whole window. Close and
+ * clear live inside the side transcript, pinned to its top, so they never add a row.
+ *
+ *   .chat-container
+ *   ├── header.chatbot-header
+ *   ├── div.chat-container__body               [position: relative]
+ *   │   ├── div.chatbot-messages               [main transcript, full width]
+ *   │   └── aside.side-panel                   [overlay, right; drag to resize]
+ *   │       ├── div.side-panel__handle
+ *   │       ├── div.chatbot-messages.side-panel__messages
+ *   │       │     └── div.side-panel__toolbar
+ *   │       └── div.chatbot-input.side-panel__input
+ *   └── div.chatbot-input                      [main composer, full width]
+ */
+.chat-container__body {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
+/* Set for the duration of a panel resize drag; see handleSidePanelResizeStart. */
+.chat-container__body.is-resizing-panel {
+  user-select: none;
+}
+
+.side-panel {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  /* Set by the resize drag; the fallback matches DEFAULT_SIDE_PANEL_WIDTH. */
+  width: var(--side-panel-width, 360px);
+  /* Never swallow the transcript whole — a slice of it stays reachable. */
+  max-width: calc(100% - 160px);
+  background: linear-gradient(180deg, #f5f6f9 0%, #f8f9fa 40%);
+  border-left: 1px solid rgba(102, 112, 153, 0.16);
+  box-shadow: -10px 0 26px rgba(90, 100, 130, 0.16);
+}
+
+/* Straddles the panel's left edge so the grab area is wider than the hairline. */
+.side-panel__handle {
+  position: absolute;
+  left: -4px;
+  top: 0;
+  bottom: 0;
+  width: 9px;
+  z-index: 6;
+  cursor: col-resize;
+  touch-action: none;
+  background: transparent;
+  transition: background 0.15s;
+}
+
+.side-panel__handle:hover,
+.side-panel__handle.is-resizing {
+  background: rgba(100, 140, 255, 0.35);
+}
+
+/* The panel ends mid-window, so its composer keeps square bottom corners. */
+.side-panel .side-panel__input {
+  border-radius: 0;
+}
+
+/*
+ * Slim bar at the top of the side transcript only. It sticks while that column
+ * scrolls, and it is not a grid item, so the main chat is unaffected.
+ */
+.side-panel__toolbar {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-shrink: 0;
+  min-width: 0;
+  margin: -5px -14px 0;
+  padding: 6px 10px 6px 14px;
+  background: linear-gradient(180deg, #f5f6f9 0%, #f8f9fa 100%);
+  border-bottom: 1px solid rgba(102, 112, 153, 0.12);
+}
+
+.side-panel__toolbar-label {
+  min-width: 0;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #718096;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.side-panel__toolbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+}
+
+.side-panel__icon-button {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: #718096;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.side-panel__icon-button:hover:not(:disabled) {
+  color: #667099;
+  background: rgba(102, 112, 153, 0.12);
+}
+
+.side-panel__icon-button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.side-panel__hint {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  font-style: italic;
+  color: #a0aec0;
+}
+
+/*
+ * Panel-local overrides of the shared chat rules. The .chat-container step is
+ * deliberate: it makes these (0,4,0) so they outrank
+ * `.floating-chatbot .chatbot-window .chatbot-messages` (0,3,0) regardless of
+ * stylesheet import order.
+ */
+.floating-chatbot .chatbot-window .chat-container .side-panel__messages {
+  padding: 5px 14px 14px;
+}
+
+/*
+ * Same chrome as the main composer (padding, field, send button all inherit from
+ * .chatbot-input). The only difference is the hairline and shadow on the panel edge.
+ */
+.floating-chatbot.dark .side-panel {
+  background: linear-gradient(180deg, #252525 0%, #292929 40%);
+  border-left-color: #444;
+  box-shadow: -10px 0 26px rgba(0, 0, 0, 0.4);
+}
+
+.floating-chatbot.dark .side-panel__toolbar {
+  background: linear-gradient(180deg, #252525 0%, #292929 100%);
+  border-bottom-color: #444;
+}
+
+.floating-chatbot.dark .side-panel__toolbar-label,
+.floating-chatbot.dark .side-panel__icon-button {
+  color: #a0aec0;
+}
+
+.floating-chatbot.dark .side-panel__icon-button:hover:not(:disabled) {
+  color: #e2e8f0;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.floating-chatbot.dark .side-panel__hint {
+  color: #718096;
+}
+
+/*
+ * At phone widths the window is already 100vw, so an overlay sized to the transcript
+ * would leave nothing to read behind it. The panel takes the whole window instead,
+ * and the main parts yield (they stay mounted so their state survives) — including
+ * the composer, which the body would otherwise leave visible as a second input bar
+ * stacked under the panel's own. Keep the breakpoint in sync with NARROW_MAX in
+ * FloatingChatBot.tsx.
+ */
+@media (max-width: 480px) {
+  .side-panel {
+    left: 0;
+    width: auto;
+    max-width: none;
+    border-left: none;
+    box-shadow: none;
+  }
+
+  /* No room to resize into, and nothing left beside the panel to reveal. */
+  .side-panel__handle {
+    display: none;
+  }
+
+  .chat-container--split .chat-container__body > .chatbot-messages,
+  .chat-container--split > .chatbot-input {
+    display: none;
+  }
+}

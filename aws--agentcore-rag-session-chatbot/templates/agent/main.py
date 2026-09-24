@@ -2,7 +2,7 @@ import uvicorn
 from strands import Agent
 from ag_ui_strands import StrandsAgent, StrandsAgentConfig, create_strands_app
 from model.load import load_model
-from memory.session import get_s3_session_manager
+from memory.session import get_s3_session_manager, get_side_question_session_manager
 from tools import tools
 import os
 import time
@@ -140,9 +140,31 @@ agent = Agent(
 
 
 def session_manager_provider(input_data):
+    """Pick the session manager for this thread.
+
+    A `/btw` side question runs on its own thread id and carries the thread it is a
+    side question *about* in ``forwardedProps.sideQuestionOf``. That gets a manager
+    which reads the parent's transcript and writes only its own. Everything else gets
+    the ordinary S3-backed session manager.
+
+    Called once per thread (ag_ui_strands caches the agent per thread_id), so a
+    recycled container re-reads the parent on the next side run.
+    """
     t0 = time.time()
-    mgr = get_s3_session_manager(input_data.thread_id, "default-user")
-    print(f"[timing] session init: {(time.time()-t0)*1000:.0f}ms", flush=True)
+
+    thread_id = input_data.thread_id
+    forwarded = input_data.forwarded_props
+    forwarded = forwarded if isinstance(forwarded, dict) else {}
+    parent_id = forwarded.get("sideQuestionOf")
+
+    if isinstance(parent_id, str) and parent_id and parent_id != thread_id:
+        mgr = get_side_question_session_manager(thread_id, parent_id)
+        label = f"side-question of {parent_id}"
+    else:
+        mgr = get_s3_session_manager(thread_id, "default-user")
+        label = "default-user"
+
+    print(f"[timing] session init ({label}): {(time.time()-t0)*1000:.0f}ms", flush=True)
     return mgr
 
 

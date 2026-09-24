@@ -119,7 +119,9 @@ Output is one markdown file per input, in exactly this shape:
 
 ### summary
 
-Three worked charging-profile examples. Profile 2 is a TxDefaultProfile ...
+- Three worked charging-profile examples.
+- Profile 2 is a TxDefaultProfile that recurs daily at 07:00.
+- Both examples use the same `connectorId` 1 but differ in `stackLevel`.
 
 ### original_text
 
@@ -130,8 +132,14 @@ E.g 1. Assume the Charge Point consist three Charging Profile
 ```
 ```
 
-Two format decisions worth keeping:
+Three format decisions worth keeping:
 
+- **`summary` is a bullet list, not a paragraph.** 2-5 one-line bullets, no
+  nesting, each written to stand on its own. The summary is what gets quoted
+  and embedded downstream, and a paragraph is one blob whose meaning lives in
+  the whole of it — a reader meeting a single line in a search result learns
+  nothing from "The following section describes …". The first bullet names the
+  kind of content so a range is still classifiable from its opening line.
 - **`original_text` is fenced, not inlined.** The page text carries its own `#`
   headings; inlined under `### original_text`, those would become siblings of
   the `##` ranges and destroy the document structure. The fence is sized to the

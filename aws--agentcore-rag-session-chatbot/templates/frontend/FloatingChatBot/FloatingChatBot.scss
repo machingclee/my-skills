@@ -1,4 +1,4 @@
-@import './shared-card-styles.scss';
+@use './shared-card-styles.scss' as *;
 
 .floating-chatbot {
   position: fixed;
@@ -12,10 +12,10 @@
     bottom: 40px;
   }
 
-  &.resizing {
-    .chatbot-window {
-      transition: none !important;
-    }
+  .chatbot-window.is-interacting {
+    transition: none !important;
+    user-select: none;
+    will-change: transform;
   }
 
   @keyframes spin {
@@ -88,96 +88,21 @@
       opacity: 1;
       transform: scale(1) translateY(0);
       pointer-events: all;
+      contain: layout;
+      isolation: isolate;
+      will-change: transform;
     }
 
-    // Left-edge drag handle for horizontal resize
-    .chatbot-resize-handle {
+    // Edge and corner handles. The window is position:fixed, so every side resizes.
+    .chatbot-resize {
       position: absolute;
-      top: 0;
-      left: 0;
-      width: 10px;
-      height: 100%;
-      cursor: ew-resize;
-      z-index: 5;
       touch-action: none;
       background: rgba(0, 0, 0, 0.06);
-      border-left: 1px solid rgba(0, 0, 0, 0.1);
-      transition: background 0.15s ease;
+      transition: background-color 0.12s ease;
 
-      .chatbot-resize-grip {
-        position: absolute;
-        top: 50%;
-        left: 50%;
-        transform: translate(-50%, -50%);
-        width: 2px;
-        height: 40px;
-        border-radius: 1px;
-        background: rgba(0, 0, 0, 0.25);
-        opacity: 0.4;
-        transition: opacity 0.2s ease;
-      }
-
-      &:hover {
-        background: rgba(59, 130, 246, 0.2);
-
-        .chatbot-resize-grip {
-          opacity: 1;
-        }
-      }
-
-      &.active {
+      &:hover,
+      &.is-resizing {
         background: rgba(59, 130, 246, 0.28);
-
-        .chatbot-resize-grip {
-          opacity: 1;
-        }
-      }
-    }
-
-    // Top-edge drag handle for vertical resize (window is bottom-anchored)
-    .chatbot-resize-handle--top {
-      position: absolute;
-      top: 0;
-      left: 0;
-      right: 0;
-      width: auto;
-      height: 10px;
-      cursor: ns-resize;
-      z-index: 5;
-      touch-action: none;
-      background: rgba(0, 0, 0, 0.06);
-      border-left: none;
-      border-bottom: 1px solid rgba(0, 0, 0, 0.1);
-      border-top-left-radius: $card-border-radius;
-      border-top-right-radius: $card-border-radius;
-
-      .chatbot-resize-grip {
-        position: absolute;
-        top: 50%;
-        left: 50%;
-        transform: translate(-50%, -50%);
-        width: 40px;
-        height: 2px;
-        border-radius: 1px;
-        background: rgba(0, 0, 0, 0.25);
-        opacity: 0.4;
-        transition: opacity 0.2s ease;
-      }
-
-      &:hover {
-        background: rgba(59, 130, 246, 0.2);
-
-        .chatbot-resize-grip {
-          opacity: 1;
-        }
-      }
-
-      &.active {
-        background: rgba(59, 130, 246, 0.28);
-
-        .chatbot-resize-grip {
-          opacity: 1;
-        }
       }
     }
 
@@ -197,8 +122,7 @@
       border-radius: 0;
       z-index: 10000;
 
-      .chatbot-resize-handle,
-      .chatbot-resize-handle--top {
+      .chatbot-resize {
         display: none;
       }
 
@@ -220,6 +144,12 @@
       gap: 12px;
       box-shadow: 0 2px 12px rgba(90, 100, 130, 0.22);
       position: relative;
+      // The header doubles as the maximized/restore target, so no text selection on double-click.
+      user-select: none;
+
+      .chat-history-panel {
+        user-select: text;
+      }
 
       &::after {
         content: "";
@@ -271,6 +201,24 @@
           white-space: nowrap;
           overflow: hidden;
           text-overflow: ellipsis;
+        }
+      }
+
+      &.is-draggable {
+        cursor: move;
+        touch-action: none;
+        user-select: none;
+
+        .header-icon-button,
+        button {
+          cursor: pointer;
+          touch-action: auto;
+        }
+
+        .chat-history-panel {
+          cursor: default;
+          user-select: text;
+          touch-action: auto;
         }
       }
 
@@ -340,11 +288,54 @@
         font-size: inherit;
         line-height: 1;
       }
+
+      /* The /btw opener: same chrome as the icon buttons, sized for a short label. */
+      .header-text-button {
+        height: 34px;
+        padding: 0 11px;
+        border-radius: 10px;
+        background: rgba(255, 255, 255, 0.1);
+        border: 1px solid transparent;
+        color: white;
+        font-family: inherit;
+        font-size: 13px;
+        line-height: 1;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        transition: background 0.15s ease, border-color 0.15s ease, transform 0.15s ease;
+
+        /* Code text style: the button keeps the header's chrome, only the glyphs
+           change to the code face, so the label reads as a literal command. */
+        code {
+          background: none;
+          padding: 0;
+          font-family: $code-font-family;
+          font-size: 12.5px;
+          font-weight: 600;
+          letter-spacing: 0.01em;
+        }
+
+        &:hover:not(:disabled) {
+          background: rgba(255, 255, 255, 0.2);
+        }
+
+        &:active:not(:disabled) {
+          transform: scale(0.96);
+        }
+
+        &.active {
+          background: rgba(255, 255, 255, 0.24);
+          border-color: rgba(255, 255, 255, 0.28);
+        }
+      }
     }
 
     // Messages container
     .chatbot-messages {
       flex: 1;
+      min-height: 0;
       overflow-y: auto;
       padding: 5px 20px 20px 20px;
       background: linear-gradient(180deg, #f5f6f9 0%, #f8f9fa 40%);
@@ -497,6 +488,9 @@
 
           .message-content {
             @include markdown-code-styles;
+            font-size: 16px;
+            line-height: 1.5;
+            white-space: pre-wrap;
 
             p {
               margin: 0 0 4px 0;
@@ -513,6 +507,39 @@
 
             ul, ol {
               margin: 4px 0;
+              padding-left: 20px;
+            }
+          }
+
+          // Agent replies render via CustomMarkdown (article-sized headings/body).
+          // Keep them at the same 16px as user bubbles.
+          .markdown-body {
+            font-size: 16px;
+            line-height: 1.5;
+
+            > :first-child {
+              margin-top: 0 !important;
+            }
+
+            > :last-child {
+              margin-bottom: 0 !important;
+            }
+
+            h1, h2, h3, h4, h5, h6 {
+              margin: 8px 0 4px 0 !important;
+              font-size: 16px !important;
+              font-weight: 600;
+              line-height: 1.4;
+            }
+
+            p {
+              margin: 0 0 8px 0;
+              font-size: inherit;
+              line-height: 1.5;
+            }
+
+            ul, ol {
+              margin: 4px 0 8px 0;
               padding-left: 20px;
             }
           }
@@ -569,21 +596,33 @@
 
     // Input area
     .chatbot-input {
+      flex-shrink: 0;
       padding: 14px 16px;
       background: rgba(255, 255, 255, 0.96);
       border-top: 1px solid rgba(102, 112, 153, 0.12);
       border-radius: 0 0 $card-border-radius $card-border-radius;
       display: flex;
-      align-items: center;
+      align-items: flex-end;
       gap: 8px;
       backdrop-filter: blur(8px);
 
-      input {
+      textarea {
         flex: 1;
+        min-width: 0;
+        box-sizing: border-box;
         padding: 12px 16px;
         border: 1px solid rgba(102, 112, 153, 0.2);
-        border-radius: 20px;
+        border-radius: 12px;
+        font-family: inherit;
         font-size: 16px;
+        line-height: 24px;
+        min-height: calc(24px * 1 + 12px + 12px + 2px);
+        max-height: calc(24px * 10 + 12px + 12px + 2px);
+        resize: none;
+        overflow-x: hidden;
+        overflow-y: auto;
+        white-space: pre-wrap;
+        overflow-wrap: break-word;
         outline: none;
         transition: border-color 0.2s, box-shadow 0.2s;
         background: #f8f9fc;
@@ -632,6 +671,10 @@
       .send-button {
         width: 40px;
         height: 40px;
+        min-width: 40px;
+        min-height: 40px;
+        padding: 0;
+        flex-shrink: 0;
         border-radius: 50%;
         background: linear-gradient(135deg, #7a84a8 0%, #667099 100%);
         border: none;
@@ -640,8 +683,16 @@
         display: flex;
         align-items: center;
         justify-content: center;
+        line-height: 0;
         transition: transform 0.2s, box-shadow 0.2s;
         box-shadow: 0 4px 12px rgba(102, 112, 153, 0.25);
+
+        svg {
+          display: block;
+          width: 18px;
+          height: 18px;
+          flex-shrink: 0;
+        }
 
         &:hover:not(:disabled) {
           transform: scale(1.08);
@@ -668,6 +719,18 @@
 
   // Dark mode overrides (class applied directly to .floating-chatbot)
   &.dark {
+    /*
+     * These four were referenced throughout the block below but never declared, which
+     * silently broke every use: an unresolved var() makes the declaration invalid at
+     * computed-value time, so `border-color` fell back to its initial value
+     * (currentColor) and the window, composer and field all grew a white hairline in
+     * dark mode. Values match the literals used elsewhere in this block.
+     */
+    --menu-border: #444;
+    --border-code: #444;
+    --text-primary: #e2e8f0;
+    --text-muted: #718096;
+
     .chatbot-toggle {
       background: linear-gradient(135deg, #4a5568 0%, #2d3748 100%);
       box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
@@ -678,35 +741,13 @@
       border-color: var(--menu-border);
     }
 
-    .chatbot-resize-handle,
-    .chatbot-resize-handle--top {
-      background: rgba(255, 255, 255, 0.06);
-      border-left-color: rgba(255, 255, 255, 0.1);
+    .chatbot-resize {
+      background: rgba(255, 255, 255, 0.08);
 
-      .chatbot-resize-grip {
-        background: rgba(255, 255, 255, 0.3);
-        opacity: 0.4;
-      }
-
-      &:hover {
-        background: rgba(100, 140, 255, 0.3);
-
-        .chatbot-resize-grip {
-          opacity: 1;
-        }
-      }
-
-      &.active {
+      &:hover,
+      &.is-resizing {
         background: rgba(100, 140, 255, 0.35);
-
-        .chatbot-resize-grip {
-          opacity: 1;
-        }
       }
-    }
-
-    .chatbot-resize-handle--top {
-      border-bottom-color: rgba(255, 255, 255, 0.1);
     }
 
     .chatbot-header {
@@ -758,7 +799,7 @@
       background: rgba(41, 41, 41, 0.96);
       border-top-color: var(--menu-border);
 
-      input {
+      textarea {
         background: #333;
         border-color: var(--border-code);
         color: var(--text-primary);
@@ -813,8 +854,7 @@
         border-radius: 0;
       }
 
-      .chatbot-resize-handle,
-      .chatbot-resize-handle--top {
+      .chatbot-resize {
         display: none;
       }
     }

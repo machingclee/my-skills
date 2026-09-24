@@ -31,6 +31,8 @@ $border-light: #e2e8f0;
 $border-lighter: #ebebeb;
 
 // Code block styling (shared across Article and ChatBot)
+$code-font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+  "Liberation Mono", "Courier New", monospace;
 $inline-code-background: rgb(245, 242, 240);
 $inline-code-padding: 0.1em 0.4em;
 $inline-code-border-radius: 6px;

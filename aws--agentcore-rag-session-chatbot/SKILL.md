@@ -70,9 +70,11 @@ PostgreSQL  schema {{POSTGRES_SCHEMA}}.embeddings
 app/{{AGENT_NAME}}/   AgentCore AGUI  CUSTOM_JWT
     rephrase → find_tags → search → rerank → copy `link` verbatim → answer
     S3SessionManager → s3://{{S3_SESSION_BUCKET}}/sessions/{uuid}/...
+    SideQuestionSessionManager → reads that prefix, writes sessions/{uuid}:btw:{n}/
     │
     ▼
-session-lambda  GET /api/sessions/:id/messages   (IAM GetObject/ListBucket)
+session-lambda  GET /api/sessions/:id/messages              (IAM GetObject/ListBucket)
+                GET /api/sessions/:parent/side/:n/messages  (/btw side threads only)
     │
     ▼
 frontend FloatingChatBot  Amplify signIn(dummy bot) + SSE /invocations
@@ -167,6 +169,7 @@ cp -R "$SKILL/session-lambda" <repo>/agentcore-session-retrieval-lambda
 cp -R "$SKILL/frontend/FloatingChatBot" <frontendDir>/src/components/FloatingChatBot
 cp "$SKILL/frontend/chatSlice.ts" <frontendDir>/src/redux/slices/chatSlice.ts
 cp "$SKILL/frontend/ragApi.ts" <frontendDir>/src/redux/api/ragApi.ts
+cp "$SKILL/frontend/agentBotApi.ts" <frontendDir>/src/redux/api/agentBotApi.ts
 cp "$SKILL/attach-s3-policy.sh" <agentcore-root>/attach-s3-policy.sh
 cp "$SKILL/.env.sample" <repo>/.env.sample
 ```
@@ -186,6 +189,12 @@ a plain `sync_articles.py` run refreshes it from frontmatter.
 - Add `"SessionMessages"` to RTK `tagTypes`.
 - Import `./api/ragApi` next to other API injects.
 - Mount `<FloatingChatBot />` in the authenticated shell.
+- The bot user's credentials come from the **host app**, not from Cognito
+  constants: `agentBotApi.ts` calls `GET /api/agent-bot-credentials` and expects
+  `{ success: boolean, result: { username, password } }`. It needs that app's
+  `baseApi` (RTK Query) to inject into. Serve the endpoint from whatever backend
+  the host app already has and gate it like the app's other authenticated routes.
+  The dummy `bot` user is public by design.
 - Dependencies: `aws-amplify`, `@mui/material`, `@mui/icons-material`,
   `react-icons`, `sass` (if SCSS). Markdown renderer: swap
   `CustomMarkdown` import if the host app uses a different component.
@@ -319,6 +328,83 @@ one. Put the invoke URL in `VITE_AGENT_ENDPOINT`.
 - Session API URL and whether `create_table.py` / first inject ran
 - Next: fill `.env`, `create_table.py`, `sync_articles.py --backfill-hashes` (or `--apply` for a new corpus), `agentcore deploy`, attach S3 policy
 
+## Side questions (`/btw`)
+
+Ask a clarifying question *about* an answer — including while it is still
+streaming — without touching the main transcript, the session list, or what the
+agent remembers. Ships in the templates; nothing to enable.
+
+- Three ways to open it: type `/btw <question>` in the main composer, type bare
+  `/btw` to just open the panel, or click the **`/btw` button in the header** —
+  a toggle, so it also closes the panel. The typed form is parsed **before** the
+  `isLoading` guard, so it works mid-stream; the button needs no special casing.
+- The panel is an **overlay, not a column**: the transcript keeps the window's
+  full width, so opening or closing it never re-wraps the conversation or moves
+  its scroll anchor. Drag its left edge to resize; the width persists in
+  `chatSlice`. Below 480px it takes the whole window instead.
+- Follow-ups typed in the panel continue the same side thread. Trash clears it
+  and mints a new one (so the next ask re-reads the parent and picks up main
+  turns that finished since); X hides it and keeps the thread. Same for the
+  header toggle — closing is not clearing.
+- The panel is bound to its parent session — switching sessions, New Session, or
+  deleting the active session resets it.
+- The thread **survives a page reload**. Its id (`<parent>:btw:<n>`) is recorded on
+  the parent's `ChatSession` in `chatSlice` when it is minted, dropped by the panel's
+  trash button (which is what stops a reload resurrecting a discarded thread; a
+  session *switch* only clears local state and keeps the record), and read back in
+  `loadSession` — which also recovers the sequence number from the `:btw:<n>` tail, so
+  the next mint cannot reuse a number this session already spent.
+- The transcript comes back too, from `GET /api/sessions/:parent/side/:n/messages`.
+  Restoring **in `loadSession`, not when the panel opens**, is the load-bearing choice:
+  a stored session can only be resumed through `loadSession`, which already serializes
+  itself and resets the panel first, so nothing can race; and it covers the header
+  `/btw` toggle, which never goes through the composer's submit path. The fetch is not
+  awaited (display state for a panel nobody has opened yet), so it carries its own two
+  guards — the ref must still point at the thread it fetched, and local messages must
+  still be empty — and it fails silently: no `sideError`, because a red bubble about
+  something the user did not just do is worse than no history.
+
+### Why it works — context is `threadId`
+
+The browser only ever sends the newest user message; the agent's memory is
+whatever `S3SessionManager` restored into `agent.messages`. So a side question
+needs a *different* thread that can still see the parent's.
+
+| Piece | How |
+|---|---|
+| Side thread id | `"<parentUuid>:btw:<n>"` — never a UUID, so the session route's UUID regex rejects it and **the session Lambda never lists it**. History shows nothing. The side route serves it instead, built from two validated halves. |
+| Retrieval | `GET /api/sessions/:parent/side/:n/messages` — the parent half keeps the UUID guard, `:n` must be digits (Express decodes `%2F` inside a path param *after* routing, so a looser check could build a prefix outside the parent's namespace). It *constructs* the side id rather than parsing one. |
+| Empty side thread | **200 with `messages: []`, not 404**, unlike the session route: "minted, but the first run died before writing" is a legitimate state, and the panel should come up empty rather than surface an error. |
+| Wire | the ordinary `RunAgentInput` plus `forwardedProps.sideQuestionOf = "<parentUuid>"` |
+| Provider | `session_manager_provider` in `main.py` branches on it → `get_side_question_session_manager` |
+| Manager | **reads** the parent prefix, **writes** its own. `self.session_id` is never changed, so the inherited `create_message` / `update_agent` already write under the side prefix; only the reads are overridden. |
+| Read paths | all four go through `_get_session_path`, which resolves every id against its *own* prefix — `S3SessionManager` bakes `self.prefix` in at construction, so overriding the `session_id` argument alone would look under `sessions/{side}/session_{parent}/` and silently return an empty history. |
+| Index base | side turns number from `SIDE_QUESTION_MESSAGE_INDEX_BASE` (1e6), so the parent growing past the side's ids cannot collide. |
+| Mid-stream | the parent's *persisted* transcript cannot contain an answer that is still arriving, so while the main run is in flight the partial answer (capped ~3000 chars) is carried in the **sent** content while the panel displays only the question. That composed string is what S3 stores, so `splitSidePrompt` strips the bracket back off when the transcript is restored — and it is built from the same two constants that compose it, so mint and strip cannot drift. |
+
+Two consequences worth knowing:
+
+- **Read-through, not copy.** `sessions/{sideId}/` on S3 holds only the side's own
+  turns — the parent's are materialised into `agent.messages` in memory. Anything
+  reading S3 directly (`aws s3 ls`, the retrieval Lambda) sees a partial record;
+  only the agent sees the merged view. The side route serves that partial record
+  deliberately: the panel renders next to the main transcript that is already on
+  screen, so merging would re-ship the parent's whole transcript on every restore and
+  would have to reconcile two disjoint id ranges. `messageCount` counts stored
+  messages, tool traffic included, so it exceeds what the panel renders.
+- **The provider runs once per thread** (ag_ui_strands caches one agent per
+  `thread_id`), so a recycled container re-reads the parent on the next side run.
+  That is what keeps a side thread fresh with no extra bookkeeping.
+
+Do **not** turn the side id into a UUID, and do **not** add side turns to
+`chatSlice.sessions`, the rename path, or the main session's cache invalidation —
+that would make side questions ordinary sessions, which is the opposite of the
+point. The one thing that does belong on the session record is the side *thread id*
+(`sideSessionId`, see above): a pointer to the thread, not a turn in the transcript.
+It is also why the panel invalidates the *side* tag after each turn but never the
+parent's — the year-long `keepUnusedDataFor` on the side query would otherwise hand a
+pre-ask transcript to the next restore.
+
 ## Operations
 
 Prefer **sync** over one-off inject/delete. Each inject stores `metadata.source_path` and `metadata.content_hash` (`sha256(source_path + NUL + raw file bytes)`). Filename, frontmatter (including `pdf-filepath`), and body all change the hash. Any mismatch is delete + re-inject.
@@ -437,6 +523,23 @@ Do **not** hook sync into the docs-site GitHub Actions workflow unless that job 
     trust that relay.
 14. `files/` PDF names must not contain spaces. Inject refuses a
     `pdf-filepath` that does. Non-ASCII is fine (percent-encoded in the chip).
+15. `/btw` side threads are **invisible to the session route by design** — the id is
+    not a UUID. Do not "fix" that by relaxing its regex; it is what keeps them out of
+    history. They have their own route (`/side/:n`), which the session route's guard
+    must never be loosened to absorb.
+16. A side thread's S3 prefix holds only its **own** turns. The parent's are read
+    through in memory, never copied. A reader that goes straight to S3 (the
+    Lambda, `aws s3 ls`) sees a partial record; only the agent sees the merge. The
+    side route returns exactly that partial record, on purpose.
+17. `session_manager_provider` runs **once per thread** per container, so a side
+    thread picks up main turns that finished since only after the container
+    recycles or the panel's trash mints a new side id.
+18. The header's double-click-to-maximize is detected by hand in
+    `handleHeaderPointerDown`, **not** with `onDoubleClick`. The chat window is
+    rendered through a `createPortal`, so the browser dispatches `dblclick` to
+    `<body>` — outside the React root — and a React `onDoubleClick` never fires.
+    Do not "simplify" it back. The same handler is what lets a drag start on the
+    header without a button press starting one.
 
 ## Template files
 
@@ -446,12 +549,29 @@ templates/
   agentcore-envvars.json
   attach-s3-policy.sh
   agent/          ← Strands AG-UI RAG agent
-    main.py                     system prompt: copy `link` verbatim; two answer shapes
+    main.py                     system prompt: copy `link` verbatim; two answer shapes;
+                                session_manager_provider routes /btw to the side manager
+    memory/session.py           S3SessionManager + SideQuestionSessionManager (read parent,
+                                write own prefix; ids from 1e6)
     tools/rerank_chunks.py      2000-char excerpt; page_range + page from the row; finished `link`
     tools/links.py              chip `PDF · page 40-45 · p.45`; `#page=` = exact page
     tools/__init__.py           no article_links
   vector_db/      ← pgvector CLI (schema-aware)
     step3_inject_new_article.py pdf-filepath + page_range from ## pN-M + page from <!-- page N -->
   session-lambda/ ← Express + serverless.yml IAM
-  frontend/       ← FloatingChatBot + chatSlice + ragApi
+    src/messages.ts             shared messagesPrefix + readSessionMessages, used by both
+                                routes; `objectCount` keeps the session route's 404 (no
+                                objects) apart from a 200 with zero messages (unparseable)
+    src/routes/sessionMessages.ts  the session route + the `/side/:n` side-thread route
+  frontend/       ← FloatingChatBot + chatSlice + ragApi + agentBotApi
+    FloatingChatBot/agentStream.ts  SSE reader + runAgentTurn + resolveAgentAuth,
+                                    shared by the main chat and the side panel
+    FloatingChatBot/AgentChatInterface.tsx  /btw parsing + the header /btw toggle;
+                                    the overlay side panel and its drag handle;
+                                    header drag-to-move + double-click-to-maximize;
+                                    side-history restore in loadSession
+    chatSlice.ts                sessions + the persisted `sideSessionId` pointer
+    ragApi.ts                   getSessionMessages + getSideSessionMessages, and the
+                                single `sideThreadId(parent, n)` definition
+    agentBotApi.ts              GET /api/agent-bot-credentials (served by the host app)
 ```

@@ -46,7 +46,10 @@ export interface MessageRecord {
 export interface SessionMessagesResponse {
   success: boolean;
   result: {
+    /** The thread these messages belong to: a session id, or `<parent>:btw:<n>` for a side thread. */
     sessionId: string;
+    /** Present only on the side-thread route, where it names the thread the side question was asked about. */
+    parentSessionId?: string;
     messageCount: number;
     messages: MessageRecord[];
   };
