@@ -10,8 +10,8 @@ const UUID_REGEX =
 /**
  * `/btw` side questions run on their own thread whose id is `<parent>:btw:<n>`.
  * See add-btw.md; the browser mints the same string in
- * `AgentChatInterface.sendSideQuestion` and persists it as `ChatSession.sideSessionId`,
- * so the two spellings must stay in step.
+ * `AgentChatInterface.sendSideQuestion` and persists one per thread in
+ * `ChatSession.sideSessions`, so the two spellings must stay in step.
  */
 const SIDE_THREAD_INFIX = ":btw:";
 

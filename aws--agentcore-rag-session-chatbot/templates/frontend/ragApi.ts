@@ -43,6 +43,20 @@ export function sideThreadId(parentSessionId: string, sideSeq: number): string {
     return `${parentSessionId}:btw:${sideSeq}`;
 }
 
+/** The `:btw:<n>` tail of an id minted above — see `sideThreadId`. */
+const SIDE_THREAD_SEQ_PATTERN = /:btw:(\d+)$/;
+
+/**
+ * Recover the sequence number from a side thread id, or 0 when it carries none.
+ *
+ * Restoring an id without its number would let the next mint hand out a number this
+ * session already used, quietly reviving a side thread the user threw away.
+ */
+export function sideSeqOf(sideThreadId: string | undefined | null): number {
+    const match = sideThreadId ? SIDE_THREAD_SEQ_PATTERN.exec(sideThreadId) : null;
+    return match ? Number(match[1]) : 0;
+}
+
 const emptySessionMessages = (sessionId: string): SessionMessagesResult => ({
     sessionId,
     messageCount: 0,

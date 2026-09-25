@@ -11,6 +11,7 @@ import Spacer from './Spacer';
 import { useAppDispatch, useAppSelector } from '@/redux/hooks';
 import chatSlice from '@/redux/slices/chatSlice';
 import ragApi, {
+  sideSeqOf,
   sideThreadId,
   type HistoryApiMessage,
   type HistoryContentBlock,
@@ -56,19 +57,6 @@ const BTW_PATTERN = /^\/btw\b\s*/i;
  */
 const SIDE_CONTEXT_CAP = 3000;
 
-/** The `:btw:<n>` tail of a side thread id — see `sideSeqOf`. */
-const SIDE_THREAD_SEQ_PATTERN = /:btw:(\d+)$/;
-
-/**
- * Recover the sequence number from a persisted side thread id. Restoring the id without
- * it would let the next mint hand out a number this session already used, quietly
- * reviving a side thread the user threw away.
- */
-function sideSeqOf(sideThreadId: string | undefined): number {
-  const match = sideThreadId ? SIDE_THREAD_SEQ_PATTERN.exec(sideThreadId) : null;
-  return match ? Number(match[1]) : 0;
-}
-
 /**
  * The in-flight main answer is prepended to the side question's *prompt* — the panel shows
  * only the question, but this composed string is what the agent stores as the side turn.
@@ -104,6 +92,16 @@ const LIVE_LINE_LABEL: Record<LiveLine['type'], string> = {
 
 function generateId(): string {
   return Date.now().toString(36) + Math.random().toString(36).slice(2);
+}
+
+/** The one-line timestamp both history lists show under an entry's name. */
+function formatHistoryTimestamp(iso: string): string {
+  return new Date(iso).toLocaleString([], {
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
 }
 
 function createWelcomeMessage(): Message {
@@ -474,6 +472,14 @@ function ChatInterface({
   const [sideStatusLines, setSideStatusLines] = useState<string[]>([]);
   const [sideError, setSideError] = useState<string | null>(null);
   const [sideAgentState, setSideAgentState] = useState<Record<string, unknown>>({});
+  /**
+   * The thread on screen, mirrored out of `sideThreadIdRef` because the side list has to
+   * mark it, and a ref alone never re-renders.
+   */
+  const [activeSideSessionId, setActiveSideSessionId] = useState<string | null>(null);
+  const [showSideHistory, setShowSideHistory] = useState(false);
+  /** True only while a switched-to thread's transcript is being fetched from S3. */
+  const [isLoadingSideHistory, setIsLoadingSideHistory] = useState(false);
   const sideThreadIdRef = useRef<string | null>(null);
   const sideSeqRef = useRef(0);
   const sideRetryCountRef = useRef(0);
@@ -481,6 +487,8 @@ function ChatInterface({
   const sideInputRef = useRef<HTMLTextAreaElement>(null);
   const sideMessagesEndRef = useRef<HTMLDivElement>(null);
   const sidePanelRef = useRef<HTMLElement>(null);
+  const sideHistoryPanelRef = useRef<HTMLDivElement>(null);
+  const sideHistoryButtonRef = useRef<HTMLDivElement>(null);
   const chatBodyRef = useRef<HTMLDivElement>(null);
   const storedSidePanelWidth = useAppSelector((state) => state.chat.sidePanelWidth);
   const sidePanelWidth = storedSidePanelWidth ?? DEFAULT_SIDE_PANEL_WIDTH;
@@ -593,6 +601,21 @@ function ChatInterface({
     return () => document.removeEventListener('mousedown', onPointerDown);
   }, [showHistory]);
 
+  // Same for the side list. It has two refs because the toggle and the dropdown are not
+  // siblings — the dropdown hangs off the panel rather than the toolbar, which sits in the
+  // transcript scroller and would clip it.
+  useEffect(() => {
+    if (!showSideHistory) return;
+    const onPointerDown = (e: MouseEvent) => {
+      const target = e.target as Node;
+      if (sideHistoryPanelRef.current?.contains(target)) return;
+      if (sideHistoryButtonRef.current?.contains(target)) return;
+      setShowSideHistory(false);
+    };
+    document.addEventListener('mousedown', onPointerDown);
+    return () => document.removeEventListener('mousedown', onPointerDown);
+  }, [showSideHistory]);
+
   const resetLocalChatState = useCallback(() => {
     setLiveLine(null);
     setStatusLines([]);
@@ -601,43 +624,39 @@ function ChatInterface({
     setInput('');
   }, []);
 
+  /** The ref and its render mirror always move together — see `activeSideSessionId`. */
+  const setActiveSideThread = useCallback((sideId: string | null) => {
+    sideThreadIdRef.current = sideId;
+    setActiveSideSessionId(sideId);
+  }, []);
+
   /**
-   * Abandon the current side thread and start clean. A new thread id means the next
-   * ask re-reads the parent transcript, picking up main turns that finished since.
+   * Abandon the current side thread and start clean. The next ask mints a new thread id,
+   * re-reading the parent transcript and picking up main turns that finished since. The
+   * abandoned thread is *not* dropped here: it stays in the parent's side list, reachable
+   * and deletable from there, which is what keeps a cleared side question from being lost.
    */
   const clearSideThread = useCallback(() => {
     sideAbortRef.current?.abort();
     sideAbortRef.current = null;
-    sideThreadIdRef.current = null;
+    setActiveSideThread(null);
     sideRetryCountRef.current = 0;
     setSideMessages([]);
     setSideInput('');
     setSideIsLoading(false);
+    setIsLoadingSideHistory(false);
     setSideLiveLine(null);
     setSideStatusLines([]);
     setSideError(null);
     setSideAgentState({});
-  }, []);
+  }, [setActiveSideThread]);
 
   /** Side questions are bound to their parent session, so a session switch drops them. */
   const resetSidePanel = useCallback(() => {
     clearSideThread();
     setSidePanelOpen(false);
+    setShowSideHistory(false);
   }, [clearSideThread]);
-
-  /**
-   * The panel's trash button: abandon the side thread *and* forget it. Dropping the
-   * persisted record is what keeps a reload from resurrecting a thread the user threw
-   * away — a session switch only calls `clearSideThread`, since that thread is still
-   * that session's thread to come back to.
-   */
-  const dropSideThread = useCallback(() => {
-    clearSideThread();
-    dispatch(chatSlice.actions.setChatSessionSideSessionId({
-      sessionId: threadIdRef.current,
-      sideSessionId: null,
-    }));
-  }, [clearSideThread, dispatch]);
 
   const ensureSessionSaved = useCallback((sessionId: string) => {
     if (sessionSavedRef.current) return;
@@ -646,34 +665,95 @@ function ChatInterface({
   }, [dispatch]);
 
   /**
-   * Fill the panel from S3 for a side thread this session opened before the page reloaded.
+   * Read one side thread's own turns back from S3, or `null` when there is nothing to show
+   * (unknown thread, failed fetch). The single place both restore paths go through, so the
+   * staleness guard below is written once.
+   *
+   * The guard is what keeps a late payload from being written over whatever the user is
+   * looking at now: the ref only still points here if this thread is the one on screen.
+   */
+  const fetchSideHistory = useCallback(async (parentSessionId: string, sideId: string) => {
+    const sideSeq = sideSeqOf(sideId);
+    if (!sideSeq) return null;
+    try {
+      const result = await fetchSideSessionMessages({ parentSessionId, sideSeq }, true).unwrap();
+      if (sideThreadIdRef.current !== sideId) return null;
+      return sideHistoryToMessages(result?.messages ?? []);
+    } catch {
+      // Display-only. The panel simply starts empty.
+      return null;
+    }
+  }, [fetchSideSessionMessages]);
+
+  /**
+   * Fill the panel from S3 for the side thread this session left open before the page
+   * reloaded.
    *
    * Restoring here rather than when the panel opens is what makes it race-free: the app can
    * only resume a stored session through `loadSession`, which serializes itself and resets
    * the panel first. It also covers the header `/btw` toggle, which opens the panel without
    * going through `handleSubmit`.
    *
-   * Best-effort and silent by design: a failure leaves the panel empty and says nothing,
-   * because a red bubble about something the user did not just do is worse than no history
-   * — and `sideError` is only cleared by the next ask.
+   * Silent by design: a failure leaves the panel empty and says nothing, because a red
+   * bubble about something the user did not just do is worse than no history — and
+   * `sideError` is only cleared by the next ask. Local messages win, so a question asked
+   * while this was in flight is not overwritten by older history that arrived late.
    */
   const restoreSideHistory = useCallback(async (parentSessionId: string, sideId: string) => {
-    const sideSeq = sideSeqOf(sideId);
-    if (!sideSeq) return;
-    try {
-      const result = await fetchSideSessionMessages({ parentSessionId, sideSeq }, true).unwrap();
-      const restored = sideHistoryToMessages(result?.messages ?? []);
-      if (!restored.length) return;
-      // Two guards, both cheap. The session may have been switched while this was in
-      // flight, in which case the ref no longer points at this thread; and the user may
-      // have asked a new side question, whose transcript must not be overwritten by older
-      // history that arrived late.
-      if (sideThreadIdRef.current !== sideId) return;
-      setSideMessages((prev) => (prev.length ? prev : restored));
-    } catch {
-      // Display-only. The panel simply starts empty.
-    }
-  }, [fetchSideSessionMessages]);
+    const restored = await fetchSideHistory(parentSessionId, sideId);
+    if (!restored?.length) return;
+    setSideMessages((prev) => (prev.length ? prev : restored));
+  }, [fetchSideHistory]);
+
+  /**
+   * Show another side thread of this session. Unlike the restore above this one does
+   * replace what is on screen: switching threads is the user saying the current transcript
+   * is not the one they want.
+   */
+  const selectSideThread = useCallback(async (sideId: string) => {
+    setShowSideHistory(false);
+    // Already on screen. An *empty* one still goes through: that is a thread whose restore
+    // failed or was cut short, and picking it again is the natural way to retry.
+    if (sideId === sideThreadIdRef.current && sideMessages.length) return;
+    const parentId = threadIdRef.current;
+    // Drops the previous thread's transcript and aborts its stream, if it had one.
+    clearSideThread();
+    setActiveSideThread(sideId);
+    // Never *lower* the floor while switching: the next mint has to clear every number in
+    // use, including the threads this switch moved away from. Switching to `:btw:1` of a
+    // `1..3` session must still mint `:btw:4`, or the new thread would read 2's turns back
+    // off S3 as its own.
+    sideSeqRef.current = Math.max(sideSeqRef.current, sideSeqOf(sideId));
+    setIsLoadingSideHistory(true);
+    const restored = await fetchSideHistory(parentId, sideId);
+    if (sideThreadIdRef.current !== sideId) return;
+    setSideMessages(restored ?? []);
+    setIsLoadingSideHistory(false);
+  }, [clearSideThread, fetchSideHistory, setActiveSideThread, sideMessages]);
+
+  /**
+   * The list's own delete button: drop the thread from the parent session's list. The
+   * transcript stays on S3, and `lastSideSeq` keeps its number out of circulation.
+   *
+   * Deleting the thread on screen falls back to the newest one left, so the panel never
+   * ends up showing a transcript the list says is gone.
+   */
+  const deleteSideThread = useCallback((sideId: string, e?: React.MouseEvent) => {
+    e?.stopPropagation();
+    e?.preventDefault();
+
+    const parentId = threadIdRef.current;
+    dispatch(chatSlice.actions.removeChatSideSession({
+      sessionId: parentId,
+      sideSessionId: sideId,
+    }));
+    if (sideThreadIdRef.current !== sideId) return;
+    // The still-current list, minus the entry this click removes from it.
+    const next = (sessions.idToSession[parentId]?.sideSessions ?? [])
+      .find((entry) => entry.sideSessionId !== sideId);
+    if (next) void selectSideThread(next.sideSessionId);
+    else clearSideThread();
+  }, [dispatch, sessions.idToSession, selectSideThread, clearSideThread]);
 
   const loadSession = useCallback(async (sessionId: string) => {
     if (isLoading || isLoadingHistory) return;
@@ -688,11 +768,17 @@ function ChatInterface({
     setActiveSessionId(sessionId);
     sessionSavedRef.current = !!sessions.idToSession[sessionId];
 
-    // Resume the side thread this session already opened, so `/btw` continues it instead of
-    // starting blind, and pull its transcript back from S3 so the panel is not empty.
-    const storedSideId = sessions.idToSession[sessionId]?.sideSessionId;
-    sideThreadIdRef.current = storedSideId ?? null;
-    sideSeqRef.current = sideSeqOf(storedSideId);
+    // Resume the side thread this session already opened — the newest one, which is where
+    // the list keeps it — so `/btw` continues it instead of starting blind, and pull its
+    // transcript back from S3 so the panel is not empty.
+    const storedSides = sessions.idToSession[sessionId]?.sideSessions ?? [];
+    const storedSideId = storedSides[0]?.sideSessionId ?? null;
+    setActiveSideThread(storedSideId);
+    sideSeqRef.current = storedSides.reduce(
+      (max, entry) => Math.max(max, sideSeqOf(entry.sideSessionId)),
+      // Deleted threads are gone from the list, so their numbers have to come from here.
+      sessions.idToSession[sessionId]?.lastSideSeq ?? 0
+    );
 
     // Deliberately not awaited: it is display state for a panel the user has not opened yet,
     // and holding `isLoadingHistory` open for it would delay the main transcript. Its own
@@ -712,7 +798,7 @@ function ChatInterface({
       setIsLoadingHistory(false);
       inputRef.current?.focus();
     }
-  }, [isLoading, isLoadingHistory, resetLocalChatState, resetSidePanel, sessions.idToSession, fetchSessionMessages, restoreSideHistory]);
+  }, [isLoading, isLoadingHistory, resetLocalChatState, resetSidePanel, setActiveSideThread, sessions.idToSession, fetchSessionMessages, restoreSideHistory]);
 
   const deleteSession = useCallback((sessionId: string, e?: React.MouseEvent) => {
     e?.stopPropagation();
@@ -852,18 +938,32 @@ function ChatInterface({
     sideRetryCountRef.current = 0;
     setSideError(null);
 
+    // A question typed while the list is open is about to change that list; close it so
+    // the panel behind shows the thread being asked on.
+    setShowSideHistory(false);
+
     const parentId = threadIdRef.current;
-    if (!sideThreadIdRef.current) {
+    // Held in a local, not read back off the ref: the seq bump and the dispatch below are
+    // calls, and a call in between is enough for TypeScript to drop the narrowing.
+    let threadId = sideThreadIdRef.current;
+    const isNewThread = !threadId;
+    if (!threadId) {
       sideSeqRef.current += 1;
-      sideThreadIdRef.current = sideThreadId(parentId, sideSeqRef.current);
-      // Record it on the parent session so the side thread survives a reload. Ignored
-      // for a session that has not registered yet (a `/btw` before any main send).
-      dispatch(chatSlice.actions.setChatSessionSideSessionId({
-        sessionId: parentId,
-        sideSessionId: sideThreadIdRef.current,
-      }));
+      threadId = sideThreadId(parentId, sideSeqRef.current);
+      setActiveSideThread(threadId);
     }
-    const threadId = sideThreadIdRef.current;
+
+    // Record the thread on the parent session — new, or touched because a follow-up is
+    // being asked on it. That is what keeps the side list in step with the panel. Ignored
+    // for a session that has not registered yet (a `/btw` before any main send).
+    dispatch(chatSlice.actions.saveChatSideSession({
+      sessionId: parentId,
+      sideSessionId: threadId,
+      sideSeq: sideSeqRef.current,
+      // Only a new thread is named by the question that opened it; a follow-up must not
+      // rename the thread it continues.
+      ...(isNewThread ? { name: trimmed } : {}),
+    }));
 
     const msgId = generateId();
     const runId = generateId();
@@ -960,10 +1060,11 @@ function ChatInterface({
       // messages but not the cache).
       dispatch(ragApi.util.invalidateTags([{ type: 'SessionMessages', id: threadId }]));
     }
-  }, [sideIsLoading, isLoadingBotCredentials, botCredentials, messages, isLoading, sideAgentState, dispatch]);
+  }, [sideIsLoading, isLoadingBotCredentials, botCredentials, messages, isLoading, sideAgentState, setActiveSideThread, dispatch]);
 
   const closeSidePanel = useCallback(() => {
     setSidePanelOpen(false);
+    setShowSideHistory(false);
   }, []);
 
   const handleSideKeyDown = useCallback(
@@ -1040,6 +1141,11 @@ function ChatInterface({
   const historyEntries = sessions.sessionIds
     .map((id) => ({ id, ...sessions.idToSession[id] }))
     .filter((entry) => entry.name);
+
+  // The open session's side threads, newest first. Read off `activeSessionId` rather than
+  // the ref so a change made while this session is on screen re-renders the list. Threads
+  // minted before the session registered are not in here — see `saveChatSideSession`.
+  const sideSessionEntries = sessions.idToSession[activeSessionId]?.sideSessions ?? [];
 
   return (
     <div className={`chat-container${sidePanelOpen ? ' chat-container--split' : ''}`}>
@@ -1141,12 +1247,7 @@ function ChatInterface({
                             <span className="chat-history-name">{entry.name}</span>
                             {entry.updatedAt && (
                               <span className="chat-history-meta">
-                                {new Date(entry.updatedAt).toLocaleString([], {
-                                  month: 'short',
-                                  day: 'numeric',
-                                  hour: '2-digit',
-                                  minute: '2-digit',
-                                })}
+                                {formatHistoryTimestamp(entry.updatedAt)}
                               </span>
                             )}
                           </button>
@@ -1279,22 +1380,45 @@ function ChatInterface({
             <div className="side-panel__toolbar">
               <span className="side-panel__toolbar-label">Side question</span>
               <div className="side-panel__toolbar-actions">
-                <Tooltip title="Clear side question" arrow placement="bottom">
+                {/* Same chrome as the header's session history: a count badge on the
+                    toggle, then a list whose rows switch or delete a thread. */}
+                <div ref={sideHistoryButtonRef} className="side-panel__history-anchor">
+                  <Tooltip title="Previous side questions" arrow placement="bottom">
+                    <span>
+                      <button
+                        type="button"
+                        className={`side-panel__icon-button${showSideHistory ? ' active' : ''}`}
+                        onClick={() => setShowSideHistory((v) => !v)}
+                        aria-label="Previous side questions"
+                        aria-expanded={showSideHistory}
+                        disabled={sideIsLoading}
+                      >
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                          <circle cx="12" cy="12" r="10" />
+                          <polyline points="12 6 12 12 16 14" />
+                        </svg>
+                        {sideSessionEntries.length > 0 && (
+                          <span className="side-panel__badge">
+                            {sideSessionEntries.length > 9 ? '9+' : sideSessionEntries.length}
+                          </span>
+                        )}
+                      </button>
+                    </span>
+                  </Tooltip>
+                </div>
+                <Tooltip title="New side question" arrow placement="bottom">
                   <span>
                     <button
                       type="button"
                       className="side-panel__icon-button"
-                      onClick={dropSideThread}
-                      aria-label="Clear side question"
+                      onClick={() => {
+                        setShowSideHistory(false);
+                        clearSideThread();
+                      }}
+                      aria-label="New side question"
                       disabled={sideIsLoading}
                     >
-                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                        <polyline points="3 6 5 6 21 6" />
-                        <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
-                        <path d="M10 11v6" />
-                        <path d="M14 11v6" />
-                        <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" />
-                      </svg>
+                      <AddCircleOutlineIcon style={{ fontSize: 18 }} />
                     </button>
                   </span>
                 </Tooltip>
@@ -1316,7 +1440,7 @@ function ChatInterface({
               </div>
             </div>
 
-            {sideMessages.length === 0 && !sideIsLoading && (
+            {sideMessages.length === 0 && !sideIsLoading && !isLoadingSideHistory && (
               <p className="side-panel__hint">
                 Ask a quick side question below without interrupting the conversation.
               </p>
@@ -1345,6 +1469,62 @@ function ChatInterface({
 
             <div ref={sideMessagesEndRef} />
           </div>
+
+            {/*
+              Every side question this session has asked, newest first — the panel's copy of
+              the header's session list, down to the classes, so a row reads the same way.
+
+              Hung off the panel rather than the toolbar that toggles it: the toolbar sits in
+              the transcript scroller, which would clip an overlay of this size. The panel is
+              the nearest positioned ancestor, so `.side-panel__history` anchors to its top
+              right and needs no portal.
+            */}
+            {showSideHistory && (
+              <div className="chat-history-panel side-panel__history" ref={sideHistoryPanelRef}>
+                <div className="chat-history-header">Side questions</div>
+                {sideSessionEntries.length === 0 ? (
+                  <div className="chat-history-empty">No previous side questions yet.</div>
+                ) : (
+                  <ul className="chat-history-list">
+                    {sideSessionEntries.map((entry) => {
+                      const isActive = entry.sideSessionId === activeSideSessionId;
+                      return (
+                        <li key={entry.sideSessionId} className="chat-history-row">
+                          <button
+                            type="button"
+                            className={`chat-history-item${isActive ? ' active' : ''}`}
+                            onClick={() => void selectSideThread(entry.sideSessionId)}
+                            title={entry.name}
+                          >
+                            <span className="chat-history-name">{entry.name}</span>
+                            {entry.updatedAt && (
+                              <span className="chat-history-meta">
+                                {formatHistoryTimestamp(entry.updatedAt)}
+                              </span>
+                            )}
+                          </button>
+                          <button
+                            type="button"
+                            className="chat-history-delete"
+                            title="Delete side question"
+                            aria-label={`Delete side question ${entry.name}`}
+                            onClick={(e) => deleteSideThread(entry.sideSessionId, e)}
+                          >
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                              <polyline points="3 6 5 6 21 6" />
+                              <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
+                              <path d="M10 11v6" />
+                              <path d="M14 11v6" />
+                              <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" />
+                            </svg>
+                          </button>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                )}
+              </div>
+            )}
 
             {/*
               The panel composer sits inside the overlay, above the main one — the main

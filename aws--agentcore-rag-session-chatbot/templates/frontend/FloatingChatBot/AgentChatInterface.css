@@ -490,6 +490,7 @@
 }
 
 .side-panel__icon-button {
+  position: relative;
   flex-shrink: 0;
   display: flex;
   align-items: center;
@@ -510,9 +511,41 @@
   background: rgba(102, 112, 153, 0.12);
 }
 
+.side-panel__icon-button.active {
+  color: #667099;
+  background: rgba(102, 112, 153, 0.18);
+}
+
 .side-panel__icon-button:disabled {
   opacity: 0.45;
   cursor: default;
+}
+
+/* Wrapper only: it exists to be the outside-click test's boundary, not to position. */
+.side-panel__history-anchor {
+  display: flex;
+}
+
+/*
+ * The badge the header's history button carries, restyled for the panel's own button:
+ * that one is scoped to `.header-icon-button` in FloatingChatBot.scss and painted white
+ * for the dark header, which would disappear against this toolbar.
+ */
+.side-panel__badge {
+  position: absolute;
+  top: -3px;
+  right: -3px;
+  min-width: 15px;
+  height: 15px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: #667099;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 15px;
+  text-align: center;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.18);
 }
 
 .side-panel__hint {
@@ -521,6 +554,25 @@
   line-height: 1.5;
   font-style: italic;
   color: #a0aec0;
+}
+
+/*
+ * Side-question history: the header's session list, anchored to the panel's top right
+ * instead of to a header button. Only the anchoring is overridden — the chrome, the rows
+ * and the dark-mode rules all come from `.chat-history-panel` and friends, which this
+ * element also carries.
+ *
+ * Same specificity as `.chat-history-panel` (0,1,0), so it has to come after it in the
+ * file to win — and it does, since the panel styles are the last block here. `top` clears
+ * the sticky toolbar: its 6px + 28px + 6px padding plus the 1px border.
+ */
+.side-panel__history {
+  top: 41px;
+  right: 8px;
+  left: 8px;
+  width: auto;
+  max-width: none;
+  z-index: 20;
 }
 
 /*
@@ -556,6 +608,16 @@
 .floating-chatbot.dark .side-panel__icon-button:hover:not(:disabled) {
   color: #e2e8f0;
   background: rgba(255, 255, 255, 0.08);
+}
+
+.floating-chatbot.dark .side-panel__icon-button.active {
+  color: #e2e8f0;
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.floating-chatbot.dark .side-panel__badge {
+  background: #e2e8f0;
+  color: #2d3748;
 }
 
 .floating-chatbot.dark .side-panel__hint {

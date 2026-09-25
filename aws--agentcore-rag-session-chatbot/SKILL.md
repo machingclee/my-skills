@@ -342,27 +342,37 @@ agent remembers. Ships in the templates; nothing to enable.
   full width, so opening or closing it never re-wraps the conversation or moves
   its scroll anchor. Drag its left edge to resize; the width persists in
   `chatSlice`. Below 480px it takes the whole window instead.
-- Follow-ups typed in the panel continue the same side thread. Trash clears it
-  and mints a new one (so the next ask re-reads the parent and picks up main
-  turns that finished since); X hides it and keeps the thread. Same for the
-  header toggle — closing is not clearing.
+- Follow-ups typed in the panel continue the same side thread. **New** (`+` in the
+  panel toolbar) clears the panel *without* dropping the thread: the next ask mints a
+  fresh id (so it re-reads the parent and picks up main turns that finished since) and
+  the thread it left behind stays in the session's side list. X hides the panel and
+  keeps the thread; the header toggle is the same — closing is not clearing.
 - The panel is bound to its parent session — switching sessions, New Session, or
   deleting the active session resets it.
-- The thread **survives a page reload**. Its id (`<parent>:btw:<n>`) is recorded on
-  the parent's `ChatSession` in `chatSlice` when it is minted, dropped by the panel's
-  trash button (which is what stops a reload resurrecting a discarded thread; a
-  session *switch* only clears local state and keeps the record), and read back in
-  `loadSession` — which also recovers the sequence number from the `:btw:<n>` tail, so
-  the next mint cannot reuse a number this session already spent.
+- **Every** side thread the session has asked is recorded, newest first, in
+  `ChatSession.sideSessions` (`{ sideSessionId, name, updatedAt }`, where `name` is the
+  question that opened it). The panel's list button shows them with the header history
+  panel's own classes: a row switches threads (its turns come back through
+  `GET .../side/:n/messages`), the row's trash drops it, and deleting the thread on
+  screen falls back to the newest one left. `loadSession` resumes `sideSessions[0]`,
+  which is what makes "the latest one by default" fall out of the ordering rather than
+  a stored pointer.
+- **The sequence floor is tracked separately.** `ChatSession.lastSideSeq` holds the
+  highest `:btw:<n>` ever minted and outlives deletion, because a deleted thread's turns
+  are still on S3 — handing its number to a new thread would read them back as that
+  thread's history. `loadSession` seeds the mint counter from `max(list, lastSideSeq)`,
+  and switching threads only ever raises it.
 - The transcript comes back too, from `GET /api/sessions/:parent/side/:n/messages`.
   Restoring **in `loadSession`, not when the panel opens**, is the load-bearing choice:
   a stored session can only be resumed through `loadSession`, which already serializes
   itself and resets the panel first, so nothing can race; and it covers the header
   `/btw` toggle, which never goes through the composer's submit path. The fetch is not
   awaited (display state for a panel nobody has opened yet), so it carries its own two
-  guards — the ref must still point at the thread it fetched, and local messages must
-  still be empty — and it fails silently: no `sideError`, because a red bubble about
-  something the user did not just do is worse than no history.
+  guards — the ref must still point at the thread it fetched (`fetchSideHistory`, shared
+  with the switch path), and local messages must still be empty — and it fails silently:
+  no `sideError`, because a red bubble about something the user did not just do is worse
+  than no history. Switching threads reuses that fetch but skips the empty-guard: it
+  replaces the transcript on purpose.
 
 ### Why it works — context is `threadId`
 
@@ -399,8 +409,8 @@ Two consequences worth knowing:
 Do **not** turn the side id into a UUID, and do **not** add side turns to
 `chatSlice.sessions`, the rename path, or the main session's cache invalidation —
 that would make side questions ordinary sessions, which is the opposite of the
-point. The one thing that does belong on the session record is the side *thread id*
-(`sideSessionId`, see above): a pointer to the thread, not a turn in the transcript.
+point. The one thing that does belong on the session record is the side *thread list*
+(`sideSessions`, see above): pointers to threads, not turns in the transcript.
 It is also why the panel invalidates the *side* tag after each turn but never the
 parent's — the year-long `keepUnusedDataFor` on the side query would otherwise hand a
 pre-ask transcript to the next restore.
@@ -533,7 +543,7 @@ Do **not** hook sync into the docs-site GitHub Actions workflow unless that job 
     side route returns exactly that partial record, on purpose.
 17. `session_manager_provider` runs **once per thread** per container, so a side
     thread picks up main turns that finished since only after the container
-    recycles or the panel's trash mints a new side id.
+    recycles or the panel's New (`+`) mints a new side id.
 18. The header's double-click-to-maximize is detected by hand in
     `handleHeaderPointerDown`, **not** with `onDoubleClick`. The chat window is
     rendered through a `createPortal`, so the browser dispatches `dblclick` to
@@ -568,10 +578,13 @@ templates/
                                     shared by the main chat and the side panel
     FloatingChatBot/AgentChatInterface.tsx  /btw parsing + the header /btw toggle;
                                     the overlay side panel and its drag handle;
+                                    the side-question list (switch / delete / badge);
                                     header drag-to-move + double-click-to-maximize;
                                     side-history restore in loadSession
-    chatSlice.ts                sessions + the persisted `sideSessionId` pointer
+    chatSlice.ts                sessions + the persisted `sideSessions` list, its
+                                `lastSideSeq` mint floor, and the legacy-pointer
+                                migration in `normalizeSessions`
     ragApi.ts                   getSessionMessages + getSideSessionMessages, and the
-                                single `sideThreadId(parent, n)` definition
+                                `sideThreadId(parent, n)` / `sideSeqOf` id pair
     agentBotApi.ts              GET /api/agent-bot-credentials (served by the host app)
 ```
