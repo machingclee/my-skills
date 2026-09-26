@@ -1,9 +1,10 @@
-"""Create the configured schema and embeddings table. Does not touch public.embeddings."""
+"""Create the configured schema, embeddings table, and tags table. Does not touch public.embeddings."""
 import sys
 
 from pgvector.psycopg2 import register_vector
 
 from env import pg_connect, schema_name
+from get_tags import ensure_tags_table
 
 TABLE_SQL = """
 CREATE TABLE IF NOT EXISTS {schema}.embeddings (
@@ -39,7 +40,9 @@ def main() -> None:
     cur.execute(TABLE_SQL.format(schema=schema))
     cur.execute(INDEX_SQL.format(schema=schema))
     conn.commit()
+    ensure_tags_table(conn)
     print(f"Schema {schema} ready; table {schema}.embeddings ready (vector(1536) / ada-002)")
+    print(f"Table {schema}.tags ready")
     conn.close()
 
 

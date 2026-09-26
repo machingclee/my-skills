@@ -3,14 +3,14 @@ import re
 from strands import tool
 
 from model.load import DEEPSEEK_MODEL, DEEPSEEK_NO_THINKING, get_llm_client
-from tools.tags import TAGS
+from tools.db import load_tags
 
 MODEL_ID = DEEPSEEK_MODEL
 _client = get_llm_client()
-_TAG_BY_LOWER = {t.lower(): t for t in TAGS}
 
 
-def _canonicalize_tags(raw: str) -> list[str]:
+def _canonicalize_tags(raw: str, tags: list[str]) -> list[str]:
+    by_lower = {tag.lower(): tag for tag in tags}
     text = raw.strip().strip("`")
     if not text or text.lower() == "untagged":
         return []
@@ -18,18 +18,18 @@ def _canonicalize_tags(raw: str) -> list[str]:
     out: list[str] = []
     for part in text.split(","):
         token = part.strip().strip("`\"'")
-        canonical = _TAG_BY_LOWER.get(token.lower())
+        canonical = by_lower.get(token.lower())
         if canonical and canonical not in seen:
             seen.add(canonical)
             out.append(canonical)
     return out
 
 
-def _lexical_tags(query: str) -> list[str]:
+def _lexical_tags(query: str, tags: list[str]) -> list[str]:
     """Pick tags that appear as whole tokens in the query (fallback)."""
     q = query.lower()
     out: list[str] = []
-    for tag in TAGS:
+    for tag in tags:
         token = tag.lower()
         if len(token) < 2:
             continue
@@ -44,7 +44,7 @@ def find_tags(query: str) -> list[str]:
 
     This is the SECOND step. Call this AFTER rephrase_query and BEFORE
     search_articles. Returns relevant specific tags selected from the
-    blog's tag vocabulary.
+    blog's tag vocabulary, read from {{POSTGRES_SCHEMA}}.tags on this call.
 
     Args:
         query: The rephrased search query.
@@ -53,6 +53,7 @@ def find_tags(query: str) -> list[str]:
         A list of relevant tag strings, e.g. ["springboot", "java", "aws"].
         Returns an empty list if no tags match.
     """
+    tags = load_tags()
     system_prompt = (
         f"You are a tag finder for a blog about programming and technology. "
         f"Pick the most relevant SPECIFIC tags from the list below. Prefer "
@@ -60,7 +61,7 @@ def find_tags(query: str) -> list[str]:
         f"\"tech\", \"backend\"). Include all tags that are a good match — "
         f"there is no strict limit, but avoid noise. If the query doesn't "
         f"clearly match any specific tag, respond with \"untagged\".\n\n"
-        f"Tags: {TAGS}\n\n"
+        f"Tags: {tags}\n\n"
         f"Respond with: tag1,tag2,tag3,... (no spaces, comma-separated). "
         f"If unsure, respond with \"untagged\"."
     )
@@ -76,5 +77,4 @@ def find_tags(query: str) -> list[str]:
     )
 
     result = (response.choices[0].message.content or "").strip()
-    tags = _canonicalize_tags(result)
-    return tags or _lexical_tags(query)
+    return _canonicalize_tags(result, tags) or _lexical_tags(query, tags)

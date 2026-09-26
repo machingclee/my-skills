@@ -1,11 +1,12 @@
 import os
 from openai import AzureOpenAI, OpenAI
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 from pathlib import Path
 import frontmatter
 import re
 import time
 import json
+import math
 from typing import TypedDict
 from tqdm import tqdm
 
@@ -440,29 +441,37 @@ class ArticleInjector:
         if len(text) <= max_part_chars:
             return self._chunk_document(document)
 
+        # The loop advances by `step` per iteration and the last one clips at
+        # len(text), so the total is known before any model call -- which is what
+        # lets the bar below show a real ETA rather than just a running count.
+        step = max_part_chars - overlap_chars
+        total_parts = 1 + math.ceil((len(text) - max_part_chars) / step)
+        label = document["title"][:38]
+        print(f"Splitting long article into {total_parts} parts ({len(text):,} chars)")
+
         results: list[Result] = []
         start = 0
         part_idx = 0
-        while start < len(text):
-            end = min(start + max_part_chars, len(text))
-            part_idx += 1
-            print(
-                f"Splitting long article into parts "
-                f"(part {part_idx}, chars {start}:{end} of {len(text)})..."
-            )
-            part_doc = CustomDocument(
-                tags=document["tags"],
-                title=document["title"],
-                text=text[start:end],
-                slug=document.get("slug") or "",
-                source_path=document.get("source_path") or "",
-                content_hash=document.get("content_hash") or "",
-                pdf_filepath=document.get("pdf_filepath") or "",
-            )
-            results.extend(self._chunk_document(part_doc))
-            if end >= len(text):
-                break
-            start = end - overlap_chars
+        # leave=True so each article closes with one summary line in the log
+        # (elapsed + s/part) instead of a trail of bar redraws.
+        with tqdm(total=total_parts, desc=f"  {label}", unit="part", leave=True) as bar:
+            while start < len(text):
+                end = min(start + max_part_chars, len(text))
+                part_idx += 1
+                part_doc = CustomDocument(
+                    tags=document["tags"],
+                    title=document["title"],
+                    text=text[start:end],
+                    slug=document.get("slug") or "",
+                    source_path=document.get("source_path") or "",
+                    content_hash=document.get("content_hash") or "",
+                    pdf_filepath=document.get("pdf_filepath") or "",
+                )
+                results.extend(self._chunk_document(part_doc))
+                bar.update(1)
+                if end >= len(text):
+                    break
+                start = end - overlap_chars
         return results
 
     def _chunk_document(self, document: CustomDocument) -> list[Result]:
@@ -492,11 +501,16 @@ class ArticleInjector:
                 return [chunk.as_result(document, index) for chunk in doc_as_chunks]
             except Exception as e:
                 error_msg = str(e).lower()
+                # ValidationError is a syntactically valid response whose chunks
+                # are missing fields -- the same class of transient model
+                # misbehaviour as truncated JSON, so it retries rather than
+                # aborting the run mid-article.
                 retryable = (
                     "timeout" in error_msg
                     or "timed out" in error_msg
                     or "unterminated string" in error_msg
                     or isinstance(e, json.JSONDecodeError)
+                    or isinstance(e, ValidationError)
                 )
                 if retryable and attempt < max_retries - 1:
                     wait_time = (attempt + 1) * 30  # 30s, 60s, 90s

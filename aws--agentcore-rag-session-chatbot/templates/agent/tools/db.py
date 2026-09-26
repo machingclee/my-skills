@@ -41,6 +41,22 @@ def get_conn():
     return conn
 
 
+def load_tags() -> list[str]:
+    """Every tag in {{POSTGRES_SCHEMA}}.tags, ordered.
+
+    Called on each find_tags invocation so a vocabulary written by sync is
+    visible without redeploying the agent.
+    """
+    schema = _schema_name()
+    conn = get_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(f"SELECT tag FROM {schema}.tags ORDER BY tag")
+            return [row[0] for row in cur.fetchall() if row[0]]
+    finally:
+        conn.close()
+
+
 def embed_texts(texts: list[str]) -> list[list[float]]:
     """Batch-embed texts via Azure OpenAI ada-002."""
     resp = _embedding_client.embeddings.create(

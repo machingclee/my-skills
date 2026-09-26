@@ -65,10 +65,11 @@ vector_db/inject  →  DeepSeek chunks + Azure ada-002 (1536-d)
     │
     ▼
 PostgreSQL  schema {{POSTGRES_SCHEMA}}.embeddings
+            schema {{POSTGRES_SCHEMA}}.tags   ← frontmatter vocabulary
     │
     ▼
 app/{{AGENT_NAME}}/   AgentCore AGUI  CUSTOM_JWT
-    rephrase → find_tags → search → rerank → copy `link` verbatim → answer
+    rephrase → find_tags (SELECT tags every call) → search → rerank → copy `link` verbatim → answer
     S3SessionManager → s3://{{S3_SESSION_BUCKET}}/sessions/{uuid}/...
     SideQuestionSessionManager → reads that prefix, writes sessions/{uuid}:btw:{n}/
     │
@@ -165,6 +166,8 @@ SKILL=~/.claude/skills/aws--agentcore-rag-session-chatbot/templates
 cp -R "$SKILL/vector_db" <repo>/vector_db
 cp -R "$SKILL/agent/." <agentcore-root>/app/{{AGENT_NAME}}/
 rm -f <agentcore-root>/app/{{AGENT_NAME}}/tools/article_links.py   # tombstone; do not ship
+rm -f <agentcore-root>/app/{{AGENT_NAME}}/tags.py \
+      <agentcore-root>/app/{{AGENT_NAME}}/tools/tags.py            # vocabulary lives in {{POSTGRES_SCHEMA}}.tags
 cp -R "$SKILL/session-lambda" <repo>/agentcore-session-retrieval-lambda
 cp -R "$SKILL/frontend/FloatingChatBot" <frontendDir>/src/components/FloatingChatBot
 cp "$SKILL/frontend/chatSlice.ts" <frontendDir>/src/redux/slices/chatSlice.ts
@@ -179,8 +182,9 @@ If there is no AgentCore project yet, run `agentcore create` first (or
 
 ### 2. Substitute placeholders
 
-Search-replace the table above. `TAGS = []` stays empty until `get_tags.py` runs —
-a plain `sync_articles.py` run refreshes it from frontmatter.
+Search-replace the table above. The tag vocabulary is `{{POSTGRES_SCHEMA}}.tags`,
+written by `sync_articles.py --apply` or `get_tags.py`. `find_tags` reads that
+table on every call.
 
 ### 3. Frontend wiring (existing app)
 
@@ -259,7 +263,8 @@ from another AgentCore project so deploy does not destroy that runtime.
 cd <repo>/vector_db && uv sync && uv run create_table.py
 ```
 
-Creates `{{POSTGRES_SCHEMA}}` and `{{POSTGRES_SCHEMA}}.embeddings`. Does
+Creates `{{POSTGRES_SCHEMA}}`, `{{POSTGRES_SCHEMA}}.embeddings`, and
+`{{POSTGRES_SCHEMA}}.tags` (`tag TEXT PRIMARY KEY`). Does
 **not** drop `public.embeddings`.
 
 Markdown frontmatter (no `id` / `path` — folder numbers are sidebar sort only):
@@ -448,12 +453,11 @@ the hash is of the markdown file. Re-run the paged-summary step, then sync.
 | Sync dry-run | `uv run --directory vector_db sync_articles.py` |
 | First-time fingerprints | `uv run --directory vector_db sync_articles.py --backfill-hashes` |
 | Apply add / change / remove | `uv run --directory vector_db sync_articles.py --apply` |
-| Apply without the tag deploy | `uv run --directory vector_db sync_articles.py --apply --no-deploy` |
 | Title-only missing | `uv run --directory vector_db check_missing.py` |
 | Inject one file | `sh vector_db/inject_new_article.sh "<abs-path>"` |
 | Latest | `uv run --directory vector_db get_latest_articles.py` |
 | Delete (dry-run) | `sh vector_db/remove_old_article.sh <prefix>` then `--yes` |
-| Tags only, no vectors | `uv run --directory vector_db get_tags.py` then `agentcore deploy -y` |
+| Tags only, no vectors | `uv run --directory vector_db get_tags.py` |
 
 Resolve files by filename, `slug`, path, or title — not a YAML `id`. Ignore `*-tc.md`. Skip `wip: true` (and drop vectors if a previously injected article flips to WIP).
 
@@ -488,22 +492,33 @@ uv run --directory vector_db sync_articles.py --apply
 ```
 
 `--apply` refuses if any articles are still unfingerprinted — backfill first.
-It also refreshes the agent's tag list and deploys AgentCore when that list
-changed (step 4). Pass `--no-deploy` to leave the deploy to you.
+It also writes `{{POSTGRES_SCHEMA}}.tags` from frontmatter (step 4).
 
-4. Tags are automatic — no separate command. Every run checks the agent's `TAGS`
-list against `{{ARTICLES_DIR}}/` frontmatter. `--apply` rewrites
-`agentcore/app/{{AGENT_NAME}}/tags.py` and `tools/tags.py`, but only when the
-content actually differs, and then runs `agentcore deploy -y` from `agentcore/`
-so `find_tags` sees the new tags; an unchanged sync never triggers a deploy.
-Expect one of:
+A run shows two nested tqdm bars: `articles: N/M` over the plan, and a
+per-article `part k/N` bar with an ETA — a long article is cut into
+`max_part_chars` (14,000-char) parts before chunking, and the part total is
+computed from the character count before any model call. Read the bar, not the
+table: an article's rows land only after *all* of its parts are chunked, so a
+large document shows no progress in `embeddings` for an hour or more, and a
+`changed` article's row count drops to zero in the meantime. After 3 failed
+attempts a part falls back to the non-LLM splitter rather than aborting the run.
 
-- `tags.py unchanged (N tags) ✓` — nothing to do
-- `tags.py would change (N tags)` (dry-run) — `--apply` will rewrite the files
-- `tags.py would change` → rewrite, then the deploy line
+Bars go to stderr, so they stream to a terminal even when stdout is
+block-buffered. Redirecting to a file needs `PYTHONUNBUFFERED=1`, or the `print`
+lines arrive in 8 KB bursts and a healthy run looks hung.
 
-A failed deploy prints the manual command and does **not** roll back the vector
-changes — re-run `cd agentcore && agentcore deploy -y`.
+4. Tags are automatic — no separate command. Every run compares
+`{{ARTICLES_DIR}}/` frontmatter with `{{POSTGRES_SCHEMA}}.tags`. `--apply`
+creates that table when it is missing, inserts tags that are new, and deletes
+tags that no longer appear on any article. `find_tags` runs
+`SELECT tag FROM {{POSTGRES_SCHEMA}}.tags` on every call, so the new list is
+visible without an AgentCore deploy. Expect one of:
+
+- `{{POSTGRES_SCHEMA}}.tags unchanged (N tags) ✓` — nothing to do
+- `{{POSTGRES_SCHEMA}}.tags would change (+A -B, N tags)` (dry-run) — `--apply` writes the diff
+- `{{POSTGRES_SCHEMA}}.tags updated (+A -B, N tags)` — rows inserted and deleted
+
+`get_tags.py` writes the same table without touching embeddings.
 
 Do **not** hook sync into the docs-site GitHub Actions workflow unless that job has Postgres / Azure / DeepSeek secrets.
 
@@ -544,7 +559,10 @@ Do **not** hook sync into the docs-site GitHub Actions workflow unless that job 
 17. `session_manager_provider` runs **once per thread** per container, so a side
     thread picks up main turns that finished since only after the container
     recycles or the panel's New (`+`) mints a new side id.
-18. The header's double-click-to-maximize is detected by hand in
+18. `find_tags` reads `{{POSTGRES_SCHEMA}}.tags` on every call. Sync and
+    `get_tags.py` write that table from frontmatter. Do not put the vocabulary
+    back in `tags.py`, and do not redeploy AgentCore to publish a tag.
+19. The header's double-click-to-maximize is detected by hand in
     `handleHeaderPointerDown`, **not** with `onDoubleClick`. The chat window is
     rendered through a `createPortal`, so the browser dispatches `dblclick` to
     `<body>` — outside the React root — and a React `onDoubleClick` never fires.
@@ -565,8 +583,12 @@ templates/
                                 write own prefix; ids from 1e6)
     tools/rerank_chunks.py      2000-char excerpt; page_range + page from the row; finished `link`
     tools/links.py              chip `PDF · page 40-45 · p.45`; `#page=` = exact page
+    tools/find_tags.py          SELECT {{POSTGRES_SCHEMA}}.tags on every call
+    tools/db.py                 load_tags()
     tools/__init__.py           no article_links
   vector_db/      ← pgvector CLI (schema-aware)
+    create_table.py             embeddings + tags (tag TEXT PRIMARY KEY)
+    get_tags.py                 frontmatter → {{POSTGRES_SCHEMA}}.tags
     step3_inject_new_article.py pdf-filepath + page_range from ## pN-M + page from <!-- page N -->
   session-lambda/ ← Express + serverless.yml IAM
     src/messages.ts             shared messagesPrefix + readSessionMessages, used by both

@@ -1,15 +1,27 @@
+"""Sync the article-tag vocabulary into {{POSTGRES_SCHEMA}}.tags.
+
+Frontmatter under {{ARTICLES_DIR}}/ is the source. The table is the list
+`find_tags` reads on every call, so a tag change does not redeploy AgentCore.
+"""
+
 import json
+import sys
+from dataclasses import dataclass
 from pathlib import Path
 
 import yaml
 
-from env import ROOT
+from env import ROOT, pg_connect, schema_name
 
 ARTICLES_DIR = ROOT / "{{ARTICLES_DIR}}"
-TAGS_FILES = [
-    ROOT / "agentcore" / "app" / "{{AGENT_NAME}}" / "tags.py",
-    ROOT / "agentcore" / "app" / "{{AGENT_NAME}}" / "tools" / "tags.py",
-]
+
+
+@dataclass
+class TagSyncResult:
+    tags: list[str]
+    inserted: list[str]
+    deleted: list[str]
+    table_existed: bool
 
 
 def extract_tags(md_path: Path) -> list[str]:
@@ -31,13 +43,6 @@ def extract_tags(md_path: Path) -> list[str]:
     return []
 
 
-def format_tags_py(tags: list[str]) -> str:
-    if not tags:
-        return "TAGS = []\n"
-    inner = ",\n        ".join(json.dumps(t) for t in tags)
-    return f"TAGS = [\n        {inner},\n]\n"
-
-
 def collect_tags() -> list[str]:
     all_tags: set[str] = set()
     for md_file in sorted(ARTICLES_DIR.rglob("*.md")):
@@ -47,30 +52,79 @@ def collect_tags() -> list[str]:
     return sorted(all_tags)
 
 
-def sync_tags(*, dry_run: bool = False) -> tuple[list[str], list[Path]]:
-    """Refresh the TAGS_FILES from {{ARTICLES_DIR}}/ frontmatter.
+def _tags_table_exists(conn) -> bool:
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT 1 FROM information_schema.tables
+            WHERE table_schema = %s AND table_name = 'tags'
+            """,
+            (schema_name(),),
+        )
+        return cur.fetchone() is not None
 
-    Returns the sorted tags and the files that differ from the current content.
-    With dry_run, nothing is written.
+
+def ensure_tags_table(conn) -> None:
+    """Create {{POSTGRES_SCHEMA}}.tags when it is missing. One column, the tag."""
+    if _tags_table_exists(conn):
+        return
+    schema = schema_name()
+    with conn.cursor() as cur:
+        cur.execute(f"CREATE TABLE {schema}.tags (tag TEXT PRIMARY KEY)")
+    conn.commit()
+
+
+def _select_tags(conn) -> list[str]:
+    schema = schema_name()
+    with conn.cursor() as cur:
+        cur.execute(f"SELECT tag FROM {schema}.tags ORDER BY tag")
+        return [row[0] for row in cur.fetchall() if row[0]]
+
+
+def sync_tags(*, dry_run: bool = False) -> TagSyncResult:
+    """Make {{POSTGRES_SCHEMA}}.tags equal the sorted frontmatter vocabulary.
+
+    Inserts tags that are new and deletes tags that no longer appear on any
+    article. A dry run reports that diff and does not create or write the table.
     """
     tags = collect_tags()
-    content = format_tags_py(tags)
-    changed = [
-        path
-        for path in TAGS_FILES
-        if not path.exists() or path.read_text(encoding="utf-8") != content
-    ]
-    if not dry_run:
-        for path in changed:
-            path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(content, encoding="utf-8")
-            print(f"Wrote {path}")
-    return tags, changed
+    conn = pg_connect(register=False)
+    try:
+        existed = _tags_table_exists(conn)
+        existing = set(_select_tags(conn)) if existed else set()
+        wanted = set(tags)
+        inserted = sorted(wanted - existing)
+        deleted = sorted(existing - wanted)
+        if dry_run or (not inserted and not deleted and existed):
+            return TagSyncResult(tags, inserted, deleted, existed)
+        ensure_tags_table(conn)
+        schema = schema_name()
+        with conn.cursor() as cur:
+            if inserted:
+                cur.executemany(
+                    f"INSERT INTO {schema}.tags (tag) VALUES (%s) "
+                    "ON CONFLICT (tag) DO NOTHING",
+                    [(tag,) for tag in inserted],
+                )
+            if deleted:
+                cur.execute(
+                    f"DELETE FROM {schema}.tags WHERE tag = ANY(%s)",
+                    (deleted,),
+                )
+        conn.commit()
+        return TagSyncResult(tags, inserted, deleted, existed)
+    finally:
+        conn.close()
 
 
 def main() -> None:
-    tags, _ = sync_tags()
-    print(json.dumps(tags))
+    result = sync_tags()
+    print(json.dumps(result.tags))
+    print(
+        f"{schema_name()}.tags +{len(result.inserted)} -{len(result.deleted)} "
+        f"({len(result.tags)} tags)",
+        file=sys.stderr,
+    )
 
 
 if __name__ == "__main__":

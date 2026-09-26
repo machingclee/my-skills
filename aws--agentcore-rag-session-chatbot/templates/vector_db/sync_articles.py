@@ -1,23 +1,23 @@
 """Compare markdowns/ against {{POSTGRES_SCHEMA}}.embeddings and plan add / rename / change / remove.
 
-Tags: every run checks the agent's tag list against markdowns/ frontmatter. The
-dry-run reports drift; --apply rewrites agentcore/app/{{AGENT_NAME}}/tags.py
-(+ tools/tags.py) and deploys AgentCore, but only when the content actually
-changed (skip the deploy with --no-deploy).
+Tags: every run compares {{ARTICLES_DIR}}/ frontmatter with {{POSTGRES_SCHEMA}}.tags.
+The dry-run reports drift; --apply inserts new tags and deletes tags that no
+longer appear on any article. find_tags reads that table on every call, so a
+tag change does not deploy AgentCore.
 
 Usage:
   uv run --directory vector_db sync_articles.py                  # dry-run
   uv run --directory vector_db sync_articles.py --backfill-hashes
   uv run --directory vector_db sync_articles.py --apply
-  uv run --directory vector_db sync_articles.py --apply --no-deploy
 """
 
 from __future__ import annotations
 
 import json
-import subprocess
 import sys
 from dataclasses import asdict, dataclass
+
+from tqdm import tqdm
 
 from article_fingerprint import (
     DbArticle,
@@ -26,7 +26,7 @@ from article_fingerprint import (
     delete_by_title,
     load_db_articles,
 )
-from env import ROOT, pg_connect
+from env import pg_connect, schema_name
 from get_tags import sync_tags
 
 
@@ -284,46 +284,41 @@ def apply_plan(items: list[PlanItem], files: list[FileArticle]) -> None:
 
     injector = ArticleInjector(average_chunk_size=2500)
     try:
+        # Outer bar over articles; the injector nests a per-article part bar
+        # inside it. tqdm.write() keeps the header line above both bars rather
+        # than letting it tear through the redraw.
+        bar = tqdm(total=len(to_inject), desc="articles", unit="article")
         for i, item in enumerate(to_inject, 1):
             art = files_by_path.get(item.path)
             if not art:
-                print(f"  ⚠  missing file for inject: {item.path}")
+                bar.write(f"  ⚠  missing file for inject: {item.path}")
                 continue
-            print(f"\n[{i}/{len(to_inject)}] {art.source_path}")
+            bar.set_description(f"article {i}/{len(to_inject)}")
+            bar.write(f"[{i}/{len(to_inject)}] {art.source_path}")
             injector.inject_article(str(art.path))
+            bar.update(1)
+        bar.close()
     finally:
         injector.close()
 
 
-def refresh_tags(*, dry_run: bool, deploy: bool) -> None:
-    """Refresh the agent's TAGS list from markdowns/ frontmatter.
+def refresh_tags(*, dry_run: bool) -> None:
+    """Write {{ARTICLES_DIR}}/ frontmatter tags into {{POSTGRES_SCHEMA}}.tags.
 
-    Writes only when the content changed, and deploys AgentCore only when it did,
-    so a plain sync does not trigger a slow deploy.
+    Creates the table when it is missing. The agent reads it on the next
+    find_tags call, so this never deploys AgentCore.
     """
     print("\n── Article tags ──")
-    tags, changed = sync_tags(dry_run=dry_run)
-    if not changed:
-        print(f"  tags.py unchanged ({len(tags)} tags) ✓")
+    result = sync_tags(dry_run=dry_run)
+    table = f"{schema_name()}.tags"
+    detail = f"+{len(result.inserted)} -{len(result.deleted)}, {len(result.tags)} tags"
+    if result.table_existed and not result.inserted and not result.deleted:
+        print(f"  {table} unchanged ({len(result.tags)} tags) ✓")
         return
     if dry_run:
-        print(f"  tags.py would change ({len(tags)} tags) — applied by --apply")
+        print(f"  {table} would change ({detail}) — applied by --apply")
         return
-
-    print(f"  {len(tags)} tags — agent needs a deploy to see them")
-    hint = "cd agentcore && agentcore deploy -y"
-    if not deploy:
-        print(f"  Deploy skipped (--no-deploy). Run: {hint}")
-        return
-
-    print("\n── Deploying AgentCore ──")
-    result = subprocess.run(
-        ["agentcore", "deploy", "-y"], cwd=ROOT / "agentcore", check=False
-    )
-    if result.returncode:
-        print(f"  ⚠  deploy failed (exit {result.returncode}). Run manually: {hint}")
-    else:
-        print("  deployed ✓")
+    print(f"  {table} updated ({detail})")
 
 
 def main() -> None:
@@ -335,7 +330,6 @@ def main() -> None:
     apply = "--apply" in args
     backfill = "--backfill-hashes" in args
     as_json = "--json" in args
-    deploy = "--no-deploy" not in args
     if apply and backfill:
         print("Use either --apply or --backfill-hashes, not both.")
         sys.exit(1)
@@ -376,10 +370,10 @@ def main() -> None:
             print("\n── Applying ──")
             apply_plan(items, files)
             print("\nDone. ✓")
-        refresh_tags(dry_run=False, deploy=deploy)
+        refresh_tags(dry_run=False)
         return
 
-    refresh_tags(dry_run=True, deploy=deploy)
+    refresh_tags(dry_run=True)
 
 
 if __name__ == "__main__":
