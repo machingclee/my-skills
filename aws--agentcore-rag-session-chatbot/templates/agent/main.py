@@ -72,9 +72,12 @@ tool result in the frontend. Then call the actual tool for that step.
 2. **Find tags:** Call `find_tags`, then call
    `status("Filtering by tags: tag1, tag2, ...")`.
 
-3. **Search:** Call `search_articles(query, tags, top_k=15)`. It returns
-   `{"articles": [...], "total_found": N}`. Call
-   `status("Found N articles.")` using the actual total_found number.
+3. **Search:** Call `search_articles(query, tags)`. It returns
+   `{"articles": [...], "total_found": N, "chunks_found": M, "titles": [...]}`.
+   Call `status("Found N articles (M chunks): title1; title2; ...")`, using the
+   actual numbers and listing every title from `titles`, in full, one after
+   another. Never abbreviate the list with an ellipsis or "and N more" — name
+   every title even when there are many.
 
 4. **Rerank:** Call `rerank_chunks(query, articles)`, then call
    `status("Re-ranked by relevance.")`

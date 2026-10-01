@@ -32,12 +32,18 @@ If any of these conditions are met, call `Skill("article-generation-style")` bef
 - Do not use emoji anywhere.
 - Do not use `---` (horizontal rule) as a section separator.
 - Do not use a `—` as a sentence-level conjunction within paragraphs. Use commas or restructure the sentence instead.
+- Never write `contract` as an abstraction for how a feature, call form, or API behaves. It is not a standard programming word in that sense and it reads like legal language. Name the concrete thing instead:
+  - Use `Model` for the rules that govern a call or execution form: `The Subroutine Model`, `The Coroutine Model`, `The ScopedValue Model`.
+  - Use `Rules` when the list is a plain set of constraints, and `Semantics` when the point is what a language feature means (`with these semantics`).
+  - Use the concrete noun the sentence actually needs: guarantee, invariant, interface, precondition, validation, or the name of the thing being described.
+  - The word survives only where it is already the established name: Design by Contract, a smart contract, or an actual legal contract.
+  - This holds in the `-tc.md` companion too. Do not carry `Contract` over as a half-translated English term in Chinese prose.
 - Never line-break long sentences or paragraphs. Keep each paragraph in a single line. The user will wrap text in their editor.
 - Prefer bullet lists over long paragraphs when the content is enumerating things. If a stretch of prose is packing several reasons, cases, fields, steps, constraints, trade-offs, outcomes, or similar items, split it into bullets. Do not flatten a list into one dense paragraph.
 - Lead with one short sentence, then bullets. Each bullet is one item and stays to one or two short sentences. Nested bullets are fine when an item has a few sub-points.
 - Keep a paragraph only when the point is a single idea, a short narrative, or a setup that then leads into a list. Do not use a bullet list for a one-sentence aside.
 - Use numbered lists for ordered steps. Use unordered bullets for unordered sets. That is the default.
-- When each item in a set deserves a short starting title, use a `>>` titled block instead of a plain bullet list. Each item is its own block, and a single blank line separates one block from the next. Every line of a block starts with `>> `:
+- When each item in a set deserves a short starting title, use a `>>` titled block instead of a plain bullet list. Each item is its own block. A blank line is required between blocks, including when a block is only one line. Never place two `>>` blocks back to back. Every line of a block starts with `>> `:
 
   ```markdown
   >> **The starting title.**  The first line of that item.
@@ -45,6 +51,16 @@ If any of these conditions are met, call `Skill("article-generation-style")` bef
 
   >> **The next starting title.**  Its content.
   >> The content continues.
+  ```
+
+  A one-line list still keeps the blank line. This is the shape to copy, not a run of `>>` lines with nothing between them:
+
+  ```markdown
+  >> **`2`, `CALL`.**  The third element is the action name, and the fourth is the payload object.
+
+  >> **`3`, `CALLRESULT`.**  The third element is the result object. The id already says which call this answers.
+
+  >> **`4`, `CALLERROR`.**  The third element is an error code, the fourth is a description, and the fifth is an error details object.
   ```
 
   - The starting title is bold, and its period sits inside the bold, as in `**Title.**`.
@@ -105,7 +121,7 @@ If any of these conditions are met, call `Skill("article-generation-style")` bef
   ### Some Title {#some-title}
   ```
 
-  Use these `{#anchor}` anchors when cross-referencing between sections (e.g., "see [Some Title](#some-title)").
+- Whenever the article refers to another section, whether that section is in the same article or in another one, write `[#some-title]` and nothing else. The site fills in the section number and heading text and links to it, so never type the title yourself and never write a `[Some Title](#some-title)` link. Use `[$some-title]` when the number and the title are wanted without the angle brackets. The id must match a `{#...}` anchor in the same article, or one in the site-wide section map; an id that resolves nowhere is left on the page as literal text, so a typo is visible to the reader. Keep these references exactly as they are in the `-tc.md` companion, where they resolve against the Chinese file's own headings. Never put a literal `[#some-title]` inside a fenced code block, because the renderer expands the syntax before it parses the markdown and would rewrite the sample text.
 
 - When creating a new article, write the file under the project's article directory (typically `src/mds/articles/tech/` or `docs/`) using the naming convention that prefixes the markdown file with a sequential number (check existing files for the next available number). Ask the user if the path is unknown.
 
