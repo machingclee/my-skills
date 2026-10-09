@@ -2,9 +2,8 @@
 -- Marker used with Flyway baseline for existing databases.
 -- It does NOT create any tables — it marks the starting point.
 --
--- Existing DB that already has objects:
---   npm run baseline:local:{{schema}}
---   (or: mvn flyway:baseline -P {{schema}}-local)
+-- Existing DB that already has objects (run from this directory):
+--   make {{baselineLocal}}
 -- then add only forward migrations as V1__*.sql, V2__*.sql, ...
 --
 -- Brand-new empty schema:

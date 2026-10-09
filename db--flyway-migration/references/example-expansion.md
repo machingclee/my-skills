@@ -1,8 +1,20 @@
-# Example expansion (two schemas: `billing`, `orders`)
+# Example expansion
 
-Use this as a checklist when rendering `{{PROFILES}}` and `{{SCRIPTS}}`.
+The working layout is Maven + Makefile. There is no `package.json` and no
+Maven `<profiles>` block. The conf file is named on the `mvn` command via
+`-Dflyway.configFiles=…`, which is what the Makefile targets wrap.
 
-## Inputs
+## Target naming
+
+| Schemas | Target shape | Example |
+|---|---|---|
+| one | `<goal>-<env>` | `make migrate-local` |
+| two or more | `<goal>-<env>-<schema>` | `make migrate-local-billing` |
+
+Goals in the Makefile: `baseline`, `info`, `migrate`.
+`validate` and `repair` are typed by hand so the conf file is a deliberate choice.
+
+## Inputs (two schemas)
 
 ```
 targetDir     = ./schema/billing-and-orders
@@ -22,7 +34,7 @@ prodHost      = <PROD_HOST>
 ```
 billing-and-orders/
   pom.xml
-  package.json
+  Makefile
   README.md
   .gitignore
   flyway-billing-local.conf
@@ -35,115 +47,119 @@ billing-and-orders/
   src/main/resources/db/migration/orders/V0__baseline.sql
 ```
 
-## `{{PROFILES}}` body (inside `<profiles>`)
+No `package.json`. `pom.xml` has the Flyway plugin and the MySQL driver only —
+no `<profiles>`, no `<configuration><configFiles>`.
 
-```xml
-        <profile>
-            <id>billing-local</id>
-            <properties>
-                <flyway.locations>filesystem:${project.basedir}/src/main/resources/db/migration/billing</flyway.locations>
-                <flyway.configFiles>${project.basedir}/flyway-billing-local.conf</flyway.configFiles>
-            </properties>
-        </profile>
-        <profile>
-            <id>billing-dev</id>
-            <properties>
-                <flyway.locations>filesystem:${project.basedir}/src/main/resources/db/migration/billing</flyway.locations>
-                <flyway.configFiles>${project.basedir}/flyway-billing-dev.conf</flyway.configFiles>
-            </properties>
-        </profile>
-        <profile>
-            <id>billing-prod</id>
-            <properties>
-                <flyway.locations>filesystem:${project.basedir}/src/main/resources/db/migration/billing</flyway.locations>
-                <flyway.configFiles>${project.basedir}/flyway-billing-prod.conf</flyway.configFiles>
-            </properties>
-        </profile>
-        <profile>
-            <id>orders-local</id>
-            <properties>
-                <flyway.locations>filesystem:${project.basedir}/src/main/resources/db/migration/orders</flyway.locations>
-                <flyway.configFiles>${project.basedir}/flyway-orders-local.conf</flyway.configFiles>
-            </properties>
-        </profile>
-        <profile>
-            <id>orders-dev</id>
-            <properties>
-                <flyway.locations>filesystem:${project.basedir}/src/main/resources/db/migration/orders</flyway.locations>
-                <flyway.configFiles>${project.basedir}/flyway-orders-dev.conf</flyway.configFiles>
-            </properties>
-        </profile>
-        <profile>
-            <id>orders-prod</id>
-            <properties>
-                <flyway.locations>filesystem:${project.basedir}/src/main/resources/db/migration/orders</flyway.locations>
-                <flyway.configFiles>${project.basedir}/flyway-orders-prod.conf</flyway.configFiles>
-            </properties>
-        </profile>
+## Makefile (multi-schema)
+
+Tabs, not spaces, before each recipe line and each `@echo`.
+
+```makefile
+# Run from this directory: make info-local-billing, make migrate-dev-orders, ...
+# `make` on its own lists the targets.
+
+.PHONY: help \
+        baseline-local-billing info-local-billing migrate-local-billing \
+        baseline-dev-billing info-dev-billing migrate-dev-billing \
+        baseline-prod-billing info-prod-billing migrate-prod-billing \
+        baseline-local-orders info-local-orders migrate-local-orders \
+        baseline-dev-orders info-dev-orders migrate-dev-orders \
+        baseline-prod-orders info-prod-orders migrate-prod-orders
+
+help:
+	@echo "conf file                       command"
+	@echo "flyway-billing-local.conf       make baseline-local-billing"
+	@echo "flyway-billing-local.conf       make info-local-billing"
+	@echo "flyway-billing-local.conf       make migrate-local-billing"
+	@echo "flyway-billing-dev.conf         make baseline-dev-billing"
+	@echo "flyway-billing-dev.conf         make info-dev-billing"
+	@echo "flyway-billing-dev.conf         make migrate-dev-billing"
+	@echo "flyway-billing-prod.conf        make baseline-prod-billing"
+	@echo "flyway-billing-prod.conf        make info-prod-billing"
+	@echo "flyway-billing-prod.conf        make migrate-prod-billing"
+	@echo "flyway-orders-local.conf        make baseline-local-orders"
+	@echo "flyway-orders-local.conf        make info-local-orders"
+	@echo "flyway-orders-local.conf        make migrate-local-orders"
+	@echo "flyway-orders-dev.conf          make baseline-dev-orders"
+	@echo "flyway-orders-dev.conf          make info-dev-orders"
+	@echo "flyway-orders-dev.conf          make migrate-dev-orders"
+	@echo "flyway-orders-prod.conf         make baseline-prod-orders"
+	@echo "flyway-orders-prod.conf         make info-prod-orders"
+	@echo "flyway-orders-prod.conf         make migrate-prod-orders"
+
+baseline-local-billing:
+	mvn flyway:baseline -Dflyway.configFiles=flyway-billing-local.conf
+
+info-local-billing:
+	mvn flyway:info -Dflyway.configFiles=flyway-billing-local.conf
+
+migrate-local-billing:
+	mvn flyway:migrate -Dflyway.configFiles=flyway-billing-local.conf
+
+# ... same three recipes for billing-dev, billing-prod,
+#     and orders-local / orders-dev / orders-prod
 ```
 
-Remove the `BEGIN_PROFILE_TEMPLATE` comment block from the rendered `pom.xml`.
+Pad the two help columns so the commands line up. Column 1 is the conf file,
+column 2 is `make <target>`.
 
-## `{{SCRIPTS}}` body (inside `package.json` `"scripts"`)
+## Makefile (single schema)
 
-Valid JSON — **commas between entries, no trailing comma on the last line**.
+Drop the schema suffix. This is the shape that is known to work
+(`db-migration` for the `echarge` schema):
 
-```json
-    "info:local:billing": "mvn flyway:info -P billing-local",
-    "info:local:orders": "mvn flyway:info -P orders-local",
-    "info:dev:billing": "mvn flyway:info -P billing-dev",
-    "info:dev:orders": "mvn flyway:info -P orders-dev",
-    "info:prod:billing": "mvn flyway:info -P billing-prod",
-    "info:prod:orders": "mvn flyway:info -P orders-prod",
+```makefile
+.PHONY: help \
+        baseline-local info-local migrate-local \
+        baseline-dev info-dev migrate-dev \
+        baseline-prod info-prod migrate-prod
 
-    "baseline:local:billing": "mvn flyway:baseline -P billing-local",
-    "baseline:local:orders": "mvn flyway:baseline -P orders-local",
-    "baseline:dev:billing": "mvn flyway:baseline -P billing-dev",
-    "baseline:dev:orders": "mvn flyway:baseline -P orders-dev",
-    "baseline:prod:billing": "mvn flyway:baseline -P billing-prod",
-    "baseline:prod:orders": "mvn flyway:baseline -P orders-prod",
+help:
+	@echo "conf file                         command"
+	@echo "flyway-inventory-local.conf       make baseline-local"
+	@echo "flyway-inventory-local.conf       make info-local"
+	@echo "flyway-inventory-local.conf       make migrate-local"
+	@echo "flyway-inventory-dev.conf         make baseline-dev"
+	@echo "flyway-inventory-dev.conf         make info-dev"
+	@echo "flyway-inventory-dev.conf         make migrate-dev"
+	@echo "flyway-inventory-prod.conf        make baseline-prod"
+	@echo "flyway-inventory-prod.conf        make info-prod"
+	@echo "flyway-inventory-prod.conf        make migrate-prod"
 
-    "migrate:local:billing": "mvn flyway:migrate -P billing-local",
-    "migrate:local:orders": "mvn flyway:migrate -P orders-local",
-    "migrate:dev:billing": "mvn flyway:migrate -P billing-dev",
-    "migrate:dev:orders": "mvn flyway:migrate -P orders-dev",
-    "migrate:prod:billing": "mvn flyway:migrate -P billing-prod",
-    "migrate:prod:orders": "mvn flyway:migrate -P orders-prod",
+baseline-local:
+	mvn flyway:baseline -Dflyway.configFiles=flyway-inventory-local.conf
 
-    "repair:local:billing": "mvn flyway:repair -P billing-local",
-    "repair:local:orders": "mvn flyway:repair -P orders-local",
-    "repair:dev:billing": "mvn flyway:repair -P billing-dev",
-    "repair:dev:orders": "mvn flyway:repair -P orders-dev",
-    "repair:prod:billing": "mvn flyway:repair -P billing-prod",
-    "repair:prod:orders": "mvn flyway:repair -P orders-prod",
+info-local:
+	mvn flyway:info -Dflyway.configFiles=flyway-inventory-local.conf
 
-    "validate:local:billing": "mvn flyway:validate -P billing-local",
-    "validate:local:orders": "mvn flyway:validate -P orders-local",
-    "validate:dev:billing": "mvn flyway:validate -P billing-dev",
-    "validate:dev:orders": "mvn flyway:validate -P orders-dev",
-    "validate:prod:billing": "mvn flyway:validate -P billing-prod",
-    "validate:prod:orders": "mvn flyway:validate -P orders-prod"
+migrate-local:
+	mvn flyway:migrate -Dflyway.configFiles=flyway-inventory-local.conf
 ```
 
 ## README substitutions
 
-| Placeholder | Value |
-|---|---|
-| `{{projectName}}` | `billing-and-orders` |
-| `{{SCHEMAS_LIST}}` | `` `billing`, `orders` `` |
-| `{{exampleSchema}}` | `billing` (first schema) |
-| `{{SCHEMAS_TABLE}}` | markdown table of schema → conf trio |
+| Placeholder | One schema (`inventory`) | Two schemas |
+|---|---|---|
+| `{{projectName}}` | `inventory` | `billing-and-orders` |
+| `{{SCHEMAS_LIST}}` | `` `inventory` `` | `` `billing`, `orders` `` |
+| `{{exampleSchema}}` | `inventory` | `billing` (first) |
+| `{{baselineLocal}}` etc. | `baseline-local` | `baseline-local-billing` |
+| `{{MULTI_SCHEMA_NOTE}}` | empty | `, and the matching schema suffix for every other schema` |
+| `{{COMMAND_BLOCK}}` | the nine `make` lines, no schema suffix | the eighteen `make` lines, schema suffix on each |
+| `{{SCHEMAS_TABLE}}` | one row | one row per schema |
 
-Example `{{SCHEMAS_TABLE}}`:
+`{{SCHEMAS_TABLE}}` matches the working README: host/credential status, not a
+conf-file inventory (the layout section already lists the files).
 
 ```markdown
-| Schema | Local conf | Dev conf | Prod conf |
-|--------|------------|----------|-----------|
-| `billing` | `flyway-billing-local.conf` | `flyway-billing-dev.conf` | `flyway-billing-prod.conf` |
-| `orders` | `flyway-orders-local.conf` | `flyway-orders-dev.conf` | `flyway-orders-prod.conf` |
+| Schema | Local | Dev | Prod |
+|--------|-------|-----|------|
+| `billing` | `localhost` / `root` | placeholders — fill before use | placeholders — fill before use; gitignored |
+| `orders` | `localhost` / `root` | placeholders — fill before use | placeholders — fill before use; gitignored |
 ```
 
-## Single-schema case
+## pom.xml
 
-Same algorithm with `schemas = [inventory]`: one migration folder, three confs,
-three profiles, fifteen npm scripts (5 commands × 3 envs × 1 schema).
+Copy the template and substitute `{{groupId}}`, `{{artifactId}}`,
+`{{projectName}}`, `{{SCHEMAS_LIST}}`. Do not add profiles. Do not add a
+`<configuration>` block — the Makefile passes the conf file.

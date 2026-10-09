@@ -1,13 +1,13 @@
 ---
 name: db--flyway-migration
 description: >-
-  Scaffold a reusable multi-schema Flyway migration project (Maven + npm
-  scripts) for MySQL: per-schema migration folders, flyway-*-{local,dev,prod}.conf
-  files, Maven profiles, package.json env/schema-scoped scripts, baseline SQL,
-  and README workflow. Use when the user wants to create a Flyway migration
-  project, bootstrap schema migrations for multiple MySQL schemas, set up
-  local/dev/prod Flyway profiles, clone a multi-schema layout, or start
-  a new Flyway project under a monorepo schema/ folder.
+  Scaffold a reusable multi-schema Flyway migration project (Maven + Makefile,
+  no npm, no Maven profiles) for MySQL: per-schema migration folders,
+  flyway-*-{local,dev,prod}.conf files, Makefile targets that pass
+  -Dflyway.configFiles, baseline SQL, and README workflow. Use when the user
+  wants to create a Flyway migration project, bootstrap schema migrations for
+  one or more MySQL schemas, set up local/dev/prod Flyway confs, clone the
+  working db-migration layout, or start a new Flyway project.
 ---
 
 # Flyway multi-schema migration project scaffold
@@ -18,13 +18,14 @@ owns DDL for one or more MySQL schemas. Each schema gets:
 - its own `src/main/resources/db/migration/<schema>/` folder
 - independent version numbering (`V1__…` can exist in every schema)
 - its own `flyway_schema_history` table (via JDBC URL → schema)
-- conf files + Maven profiles for **local / dev / prod**
+- conf files for **local / dev / prod**
+- Makefile targets that pass the conf file on the `mvn` command
 
-Reference layout: one Maven package with independent per-schema folders
-(e.g. `schema/billing-and-orders`).
+Reference layout (known working): `web.v2.centralsystem/db-migration` — the
+`echarge` schema. Maven plugin only, Makefile, no profiles, no npm.
 
 The package is intentionally thin: no application code. It holds SQL migrations,
-Flyway confs, a Maven Flyway plugin, and npm scripts that wrap `mvn flyway:*`.
+Flyway confs, a Maven Flyway plugin, and a Makefile that wraps `mvn flyway:*`.
 
 ## Mandatory trigger
 
@@ -42,11 +43,11 @@ Collect (or infer) before generating. **Ask for anything missing.**
 
 | Input | Meaning | Example / default |
 |---|---|---|
-| `targetDir` | where to create the project | `./schema/billing-and-orders` |
+| `targetDir` | where to create the project | `./db-migration` |
 | `projectName` | human / package label | last path segment of `targetDir` |
 | `groupId` | Maven groupId | `com.example` (ask if unknown) |
 | `artifactId` | Maven artifactId | `db-migrations` (default) |
-| `schemas` | **one or more** MySQL schema names | `["billing","orders"]` — **required** |
+| `schemas` | **one or more** MySQL schema names | `["echarge"]` — **required** |
 | `timezone` | JDBC `serverTimezone` | `Asia/Hong_Kong` (default) |
 | `includeBaseline` | ship empty `V0__baseline.sql` per schema | `true` (default) |
 | `localUser` / `localPassword` | local MySQL creds | `root` / `root` |
@@ -56,7 +57,7 @@ Collect (or infer) before generating. **Ask for anything missing.**
 
 If `schemas` is not clear, ask. Support:
 
-1. **Single schema** — e.g. only `billing`
+1. **Single schema** — e.g. only `echarge`
 2. **Multiple schemas** — e.g. `billing` + `orders` (independent histories)
 
 Normalize each name to a valid MySQL identifier (lowercase snake preferred).
@@ -66,20 +67,21 @@ Confirm `targetDir` is empty or user accepts overwrite before writing.
 
 ```
 <targetDir>/
-  pom.xml
-  package.json
+  pom.xml                 # plugin + driver only — NO <profiles>
+  Makefile                # one target per schema × env × {baseline,info,migrate}
   README.md
-  .gitignore
+  .gitignore              # flyway-*-prod.conf is ignored
   flyway-<schema>-local.conf     × N schemas
-  flyway-<schema>-dev.conf       × N schemas
-  flyway-<schema>-prod.conf      × N schemas
+  flyway-<schema>-dev.conf       × N schemas  (placeholders, committed)
+  flyway-<schema>-prod.conf      × N schemas  (placeholders, gitignored)
   src/main/resources/db/migration/
     <schema>/
       V0__baseline.sql           (if includeBaseline)
 ```
 
-Secrets in prod (and often dev) confs should stay placeholders or gitignored —
-never invent real passwords.
+Do **not** generate `package.json`. Secrets in prod confs stay placeholders and
+the file is gitignored — never invent real passwords. Dev confs are committed
+with `<DEV_HOST>` / `<DEV_USER>` / `<DEV_PASSWORD>` placeholders.
 
 ## How to use
 
@@ -100,93 +102,134 @@ never invent real passwords.
 
    | Template | Action |
    |---|---|
-   | `pom.xml` | Expand `{{PROFILES}}` for every schema × env |
-   | `package.json` | Expand scripts for every schema × env × command |
-   | `README.md` | Substitute project + schema list |
-   | `.gitignore` | Copy as-is |
-   | `flyway-__SCHEMA__-local.conf` | One file per schema; substitute `__SCHEMA__` / placeholders |
-   | `flyway-__SCHEMA__-dev.conf` | same |
-   | `flyway-__SCHEMA__-prod.conf` | same |
+   | `pom.xml` | Substitute project placeholders. **Do not add `<profiles>`.** |
+   | `Makefile` | Expand `{{PHONY}}`, `{{HELP_ECHOES}}`, `{{RECIPES}}` — see below |
+   | `README.md` | Substitute project + schema list + make target names |
+   | `.gitignore` | Copy as-is (`flyway-*-prod.conf` stays ignored) |
+   | `flyway-__SCHEMA__-local.conf` | One file per schema |
+   | `flyway-__SCHEMA__-dev.conf` | same; host/user/password stay `<DEV_*>` unless given |
+   | `flyway-__SCHEMA__-prod.conf` | same; host/user/password stay `<PROD_*>` |
    | `src/.../__SCHEMA__/V0__baseline.sql` | One per schema if `includeBaseline` |
+
+   There is no `package.json` template. Do not create one.
 
 4. **Substitute placeholders** in every generated text file:
 
    | Placeholder | Example |
    |---|---|
-   | `{{projectName}}` | `billing-and-orders` |
+   | `{{projectName}}` | `db-migration` |
    | `{{groupId}}` | `com.example` |
    | `{{artifactId}}` | `db-migrations` |
    | `{{timezone}}` | `Asia/Hong_Kong` |
    | `{{schema}}` | current schema in per-schema files |
-   | `{{SCHEMAS_LIST}}` | `` `billing`, `orders` `` |
+   | `{{SCHEMAS_LIST}}` | `` `echarge` `` or `` `billing`, `orders` `` |
+   | `{{exampleSchema}}` | first schema |
    | `{{localUser}}` / `{{localPassword}}` | `root` / `root` |
    | `{{devHost}}` / `{{prodHost}}` | host or `<DEV_HOST>` / `<PROD_HOST>` |
    | `{{devUser}}` / `{{devPassword}}` | or `<DEV_USER>` / `<DEV_PASSWORD>` |
    | `{{prodUser}}` / `{{prodPassword}}` | or `<PROD_USER>` / `<PROD_PASSWORD>` |
+   | `{{baselineLocal}}` `{{infoLocal}}` `{{migrateLocal}}` | see target naming |
+   | `{{infoDev}}` `{{migrateDev}}` `{{infoProd}}` `{{migrateProd}}` | see target naming |
+   | `{{COMMAND_BLOCK}}` | the `make` lines from the help target, without `@echo` |
+   | `{{MULTI_SCHEMA_NOTE}}` | empty for one schema; otherwise `, and the matching schema suffix for every other schema` |
+   | `{{SCHEMAS_TABLE}}` | markdown table, one row per schema |
 
-5. **Expand Maven profiles** (see template comments). For **each** schema `S`
-   create three profiles:
+5. **Makefile target naming.**
 
-   | Profile id | conf file | locations |
+   | Schemas | Shape | Examples |
    |---|---|---|
-   | `S-local` | `flyway-S-local.conf` | `.../migration/S` |
-   | `S-dev` | `flyway-S-dev.conf` | `.../migration/S` |
-   | `S-prod` | `flyway-S-prod.conf` | `.../migration/S` |
+   | **one** | `<goal>-<env>` | `baseline-local`, `info-dev`, `migrate-prod` |
+   | **two or more** | `<goal>-<env>-<schema>` | `baseline-local-billing`, `migrate-dev-orders` |
 
-   Mark the **first schema’s `S-dev`** profile `activeByDefault` only if a
-   default is useful; otherwise leave none active (force explicit `-P`).
+   Goals that get a target: `baseline`, `info`, `migrate`.
+   Envs: `local`, `dev`, `prod`.
+   Do **not** add `validate` or `repair` targets. Those are recovery commands
+   and stay as hand-typed `mvn` lines in the README.
 
-6. **Expand npm scripts.** For each schema `S` and each env
-   `E ∈ {local,dev,prod}`:
+   **`{{PHONY}}`** — continuation lines, each indented to line up under `help`,
+   ending in ` \`. One line per schema per env feels noisy; group as one line
+   per env (single schema) or one line per schema (multi), three targets on it
+   (`baseline-… info-… migrate-…`). No trailing `\` on the last line.
+
+   **`{{HELP_ECHOES}}`** — one `@echo` per target, two padded columns:
 
    ```
-   info:E:S      → mvn flyway:info -P S-E
-   baseline:E:S  → mvn flyway:baseline -P S-E
-   migrate:E:S   → mvn flyway:migrate -P S-E
-   repair:E:S    → mvn flyway:repair -P S-E
-   validate:E:S  → mvn flyway:validate -P S-E
+   	@echo "conf file                         command"
+   	@echo "flyway-<schema>-<env>.conf        make <target>"
    ```
 
-   Profile ids **must** match package.json (`S-local`, `S-dev`, `S-prod`).
-   Do not invent short aliases like `-P S` unless the user asks — keep names
-   consistent so local/dev/prod never collide.
+   Pad so `command` starts in the same column on every line. Recipe lines and
+   `@echo` lines are **tabs**, not spaces.
 
-7. **Baseline file.** If `includeBaseline` is true, write
-   `V0__baseline.sql` per schema (comment-only marker). Tell the user:
+   **`{{RECIPES}}`** — one stanza per target:
+
+   ```makefile
+   baseline-local:
+   	mvn flyway:baseline -Dflyway.configFiles=flyway-echarge-local.conf
+
+   info-local:
+   	mvn flyway:info -Dflyway.configFiles=flyway-echarge-local.conf
+
+   migrate-local:
+   	mvn flyway:migrate -Dflyway.configFiles=flyway-echarge-local.conf
+   ```
+
+   Blank line between stanzas. Order: local, dev, prod; within an env the
+   schema order from `schemas`. Full worked examples are in
+   `references/example-expansion.md`.
+
+6. **Do not add Maven profiles.** The plugin has no `<configuration>` block.
+   The conf file is selected only by `-Dflyway.configFiles=` from the Makefile.
+   `pom.xml` properties are `project.build.sourceEncoding`, `flyway.version`
+   (`10.21.0`), `mysql.connector.version` (`8.4.0`). No compiler source/target
+   properties — this module has no Java sources.
+
+7. **Baseline file.** If `includeBaseline` is true, write `V0__baseline.sql`
+   per schema (comment-only marker) and put the matching `make` target in the
+   comment (`make baseline-local`, or `make baseline-local-<schema>` when there
+   is more than one schema). Tell the user:
 
    - **Existing DB with tables:** run `baseline` first, keep `V0`, add new
      work as `V1__…` forward.
-   - **Brand-new empty schema:** may delete `V0` and start at `V1__…`, or
-     baseline at 0 and migrate from `V1`.
+   - **Brand-new empty schema:** skip baseline. `migrate` creates the history
+     table and applies `V1` onward. `V0` may be deleted.
 
 8. **Stop after scaffold** unless the user also asked for domain SQL or to run
    migrate. Report created paths + the cheat sheet below.
 
 ## Encoded workflow (do not invent alternate commands)
 
+Single schema (the default shape — matches the working `echarge` project):
+
 ```bash
 # Preview pending migrations
-npm run info:local:<schema>
-# or: mvn flyway:info -P <schema>-local
+make info-local
+# or: mvn flyway:info -Dflyway.configFiles=flyway-<schema>-local.conf
 
 # First time on a DB that already has objects
-npm run baseline:local:<schema>
+make baseline-local
 
 # Apply
-npm run migrate:local:<schema>
+make migrate-local
+```
 
-# Repair failed checksums / failed rows (careful)
-npm run repair:local:<schema>
+Multiple schemas — append `-<schema>`:
 
-# Validate applied vs local scripts
-npm run validate:local:<schema>
+```bash
+make info-local-billing
+make baseline-local-billing
+make migrate-local-billing
 ```
 
 **Promotion:** commit SQL under `migration/<schema>/` →
-`info:dev:<schema>` → `migrate:dev:<schema>` → later
-`info:prod:<schema>` → `migrate:prod:<schema>`.
+`make info-dev` → `make migrate-dev` → later
+`make info-prod` → `make migrate-prod`.
 
 **Always run `info` before `migrate` on shared/prod.**
+
+**Run from the migration directory.** `flyway.locations` is relative
+(`filesystem:src/main/resources/db/migration/<schema>`), and a parent
+application POM will not have this plugin.
 
 ## Schema isolation rules (encode in README; do not break)
 
@@ -196,9 +239,12 @@ npm run validate:local:<schema>
    inside that schema.
 3. **Independent version streams** — `billing/V1__…` and `orders/V1__…` do not
    conflict.
-4. **Locations are per profile** — never point two schemas at the same folder.
+4. **Locations live in the conf file**, not in a Maven profile. Never point
+   two schemas at the same folder.
 5. **Out of order** stays `false`; `validateOnMigrate` stays `true` unless the
    user overrides.
+6. **`baselineOnMigrate` stays `false`.** Baselining is an explicit `make`
+   target, never a side effect of `migrate`.
 
 ## Adding a migration (agent guidance after scaffold)
 
@@ -217,7 +263,7 @@ already-applied scripts; fix-forward with a new version.
 ```
 templates/mysql/
   pom.xml
-  package.json
+  Makefile
   README.md
   .gitignore
   flyway-__SCHEMA__-local.conf
@@ -226,34 +272,9 @@ templates/mysql/
   src/main/resources/db/migration/__SCHEMA__/V0__baseline.sql
 ```
 
-When scaffolding, **never** leave the literal `__SCHEMA__` path on disk — always
-expand to real schema names.
-
-### Profile snippet (repeat per schema)
-
-```xml
-<profile>
-    <id>{{schema}}-local</id>
-    <properties>
-        <flyway.locations>filesystem:${project.basedir}/src/main/resources/db/migration/{{schema}}</flyway.locations>
-        <flyway.configFiles>${project.basedir}/flyway-{{schema}}-local.conf</flyway.configFiles>
-    </properties>
-</profile>
-<profile>
-    <id>{{schema}}-dev</id>
-    <properties>
-        <flyway.locations>filesystem:${project.basedir}/src/main/resources/db/migration/{{schema}}</flyway.locations>
-        <flyway.configFiles>${project.basedir}/flyway-{{schema}}-dev.conf</flyway.configFiles>
-    </properties>
-</profile>
-<profile>
-    <id>{{schema}}-prod</id>
-    <properties>
-        <flyway.locations>filesystem:${project.basedir}/src/main/resources/db/migration/{{schema}}</flyway.locations>
-        <flyway.configFiles>${project.basedir}/flyway-{{schema}}-prod.conf</flyway.configFiles>
-    </properties>
-</profile>
-```
+When scaffolding, **never** leave the literal `__SCHEMA__` path or any
+`{{…}}` token on disk — always expand to real schema names and real Make
+targets.
 
 ### Conf file shape (per schema × env)
 
@@ -279,25 +300,38 @@ Env defaults for URL flags:
 |---|---|---|---|
 | local | `localhost` | `false` | `true` |
 | dev | `{{devHost}}` or `<DEV_HOST>` | `false` | `true` |
-| prod | `{{prodHost}}` or `<PROD_HOST>` | `true` | omit or `false` |
+| prod | `{{prodHost}}` or `<PROD_HOST>` | `true` | omit |
+
+Prod URL has **no** `allowPublicKeyRetrieval`. Dev and prod confs carry the
+"fill in before running" comment block from the templates.
 
 ## Notes / gotchas
 
-- **Profile id consistency.** npm scripts and Maven `-P` must use the same ids
-  (`billing-local`, not `billing` vs `billing-local`). Do **not** let package.json
-  scripts use a short `-P billing` while the pom profile is `billing-dev`.
-- **Versions pinned in template:** Flyway `10.21.0`, `mysql-connector-j` `8.4.0`,
-  Java 17. Bump only if the user asks.
+- **No npm, no Maven profiles.** The working setup passes the conf file with
+  `-Dflyway.configFiles=flyway-<schema>-<env>.conf`. A profile named in
+  `package.json` but missing from the pom (or the reverse) was the failure
+  mode this layout replaces. Do not reintroduce either.
+- **Makefile tabs.** Recipe bodies and `@echo` lines must be real tabs. Spaces
+  make `make` fail with "missing separator".
+- **Single vs multi target names.** One schema omits the schema suffix so the
+  commands stay `make migrate-local`. Adding a second schema means **every**
+  target grows a `-<schema>` suffix, including the first schema's — do not mix
+  the two shapes in one Makefile.
+- **Versions pinned in template:** Flyway `10.21.0`, `mysql-connector-j`
+  `8.4.0`, plus `flyway-mysql` at the same Flyway version (required; without
+  it the MySQL plugin fails to load). Java 17. Bump only if the user asks.
 - **Database creation is out of band.** Flyway does not `CREATE DATABASE`; each
   schema must already exist on the server.
-- **Prod credentials.** Prefer placeholders + gitignore of `*-prod.conf` (or
-  fill secrets only on the machine that deploys). Never commit real prod
-  passwords in the skill output.
-- **Password special characters.** In conf files, values are literal properties
-  (not URI-encoded). Quote carefully if using XML overrides; prefer conf files.
+- **Prod credentials.** `flyway-*-prod.conf` is gitignored. Generate the file
+  anyway (placeholders) so the Makefile targets have something to point at,
+  and say so in the report — the user fills it on the machine that migrates.
+  Dev confs are committed with placeholders.
+- **Password special characters.** Conf values are literal properties (not
+  URI-encoded).
 - **Baseline vs migrate.** On an existing populated schema: `baseline` then only
   new versions. On empty: `migrate` from `V1` (optional `V0` baseline marker).
-- **Monorepo placement.** Typical path: `schema/<projectName>/`.
+- **Working directory.** Commands run inside the migration project. Relative
+  `flyway.locations` breaks if invoked from a parent module.
 - **No mixed engines in this skill.** Templates are MySQL-only. If the user
   needs PostgreSQL Flyway, ask before inventing — extend templates rather than
   silently swapping drivers.
@@ -312,20 +346,24 @@ After scaffold:
 
 - [ ] Every schema has `src/main/resources/db/migration/<schema>/`
 - [ ] Every schema has local + dev + prod conf files with that schema in the JDBC URL path
-- [ ] Every schema has Maven profiles `<schema>-local|dev|prod`
-- [ ] `package.json` scripts use the same profile ids
+- [ ] `pom.xml` has the Flyway plugin, `mysql-connector-j`, and `flyway-mysql` — and **no** `<profiles>` and **no** `<configuration>`
+- [ ] No `package.json`
+- [ ] `Makefile` recipes use tabs and `-Dflyway.configFiles=flyway-<schema>-<env>.conf`
+- [ ] One schema → targets are `<goal>-<env>`; two or more → `<goal>-<env>-<schema>` on **every** target
+- [ ] `make` (no args) prints the conf-file / command table and is the default goal (`help` is first)
+- [ ] No `validate` / `repair` Make targets; README shows them as raw `mvn` lines
 - [ ] No leftover `__SCHEMA__` or `{{…}}` placeholders (except intentional
       `<DEV_HOST>`-style credential stubs)
-- [ ] `.gitignore` covers `target/`, IDE junk; optionally `*-prod.conf` if secrets live there
+- [ ] `.gitignore` ignores `flyway-*-prod.conf`
 - [ ] README documents `info` → `migrate` and baseline for existing DBs
-- [ ] `V0__baseline.sql` is comment-only (no DDL) when included
+- [ ] `V0__baseline.sql` is comment-only (no DDL) when included, and names the
+      real `make baseline-…` target
 
 Optional smoke (requires local MySQL + schema created):
 
 ```bash
-mvn -q flyway:info -P <schema>-local
-# or
-npm run info:local:<schema>
+make info-local          # single schema
+make info-local-<schema> # multi schema
 ```
 
 ## Dependencies
@@ -333,23 +371,26 @@ npm run info:local:<schema>
 - JDK 17+
 - Maven 3.8+
 - MySQL 8.x reachable for actual migrate (not required merely to scaffold files)
-- Node/npm only if the user wants the `package.json` script wrappers (optional but always generated)
+- `make` (the targets are thin wrappers; no extra Make features)
 
 ## Cheat sheet to report after scaffold
 
-```bash
-# Local
-npm run info:local:<schema>
-npm run baseline:local:<schema>   # first time on existing DB
-npm run migrate:local:<schema>
+Single schema:
 
-# Dev / prod (fill conf credentials first)
-npm run info:dev:<schema>
-npm run migrate:dev:<schema>
-npm run info:prod:<schema>        # always info before migrate
-npm run migrate:prod:<schema>
+```bash
+make info-local
+make baseline-local   # first time on existing DB
+make migrate-local
+
+make info-dev         # fill flyway-<schema>-dev.conf first
+make migrate-dev
+make info-prod        # always info before migrate; prod conf is gitignored
+make migrate-prod
 ```
+
+Multiple schemas — same commands with `-<schema>` appended
+(`make migrate-local-billing`).
 
 Add a migration: create
 `src/main/resources/db/migration/<schema>/V<n>__<description>.sql` then
-`npm run migrate:local:<schema>`.
+`make migrate-local` (or `make migrate-local-<schema>`).

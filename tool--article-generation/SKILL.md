@@ -32,12 +32,10 @@ If any of these conditions are met, call `Skill("article-generation-style")` bef
 - Do not use emoji anywhere.
 - Do not use `---` (horizontal rule) as a section separator.
 - Do not use a `—` as a sentence-level conjunction within paragraphs. Use commas or restructure the sentence instead.
-- Never write `contract` as an abstraction for how a feature, call form, or API behaves. It is not a standard programming word in that sense and it reads like legal language. Name the concrete thing instead:
+- Do not reach for a vague abstraction when naming how a feature, call form, or API behaves. Name the concrete thing:
   - Use `Model` for the rules that govern a call or execution form: `The Subroutine Model`, `The Coroutine Model`, `The ScopedValue Model`.
   - Use `Rules` when the list is a plain set of constraints, and `Semantics` when the point is what a language feature means (`with these semantics`).
   - Use the concrete noun the sentence actually needs: guarantee, invariant, interface, precondition, validation, or the name of the thing being described.
-  - The word survives only where it is already the established name: Design by Contract, a smart contract, or an actual legal contract.
-  - This holds in the `-tc.md` companion too. Do not carry `Contract` over as a half-translated English term in Chinese prose.
 - Never line-break long sentences or paragraphs. Keep each paragraph in a single line. The user will wrap text in their editor.
 - Prefer bullet lists over long paragraphs when the content is enumerating things. If a stretch of prose is packing several reasons, cases, fields, steps, constraints, trade-offs, outcomes, or similar items, split it into bullets. Do not flatten a list into one dense paragraph.
 - Lead with one short sentence, then bullets. Each bullet is one item and stays to one or two short sentences. Nested bullets are fine when an item has a few sub-points.
@@ -64,18 +62,17 @@ If any of these conditions are met, call `Skill("article-generation-style")` bef
   ```
 
   - The starting title is bold, and its period sits inside the bold, as in `**Title.**`.
-  - That closing period is always the ASCII `.`, in English and in Traditional Chinese alike. Never close a starting title with the full-width `。`, even when the title text is Chinese.
-  - An ordered title closes the same way: `>> **2 Field mapping.**`, and in Chinese `>> **2 欄位映射.**`.
+  - Close that title with the ASCII `.`.
+  - An ordered title closes the same way: `>> **2 Field mapping.**`.
   - Leave two spaces between the closing `**` and the content that follows it.
   - When the items are ordered, put the number directly inside the bold title with no brackets and no separator: `>> **1 Some Title.**`, then `>> **2 Another Title.**`, and so on.
   - A blank line inside a single block is written as a bare `>>` with nothing after it.
   - The block ends when the lines stop starting with `>>`. There is no closing marker, and a line of `>>>` is never used.
   - This is the one place bold is expected, so the `** **` restriction above does not apply to a starting title.
-  - Apply this in Traditional Chinese as well: in the `-tc.md` companion, keep the `>>` markers and the bold, and translate the title text.
 - Group closely related topics under a parent section (`###`) with child subsections (`####`). Avoid long flat lists of same-level headings. Use `#####` for deeper nesting when a subsection benefits from further breakdown.
 - When an article covers many topics, cluster them into a multi-level hierarchy that uses at least three heading levels (`###`, `####`, and `#####`). Prefer grouping related items under broader sections rather than listing many same-level headings side by side. Example shape: `### Domain Area` → `#### Capability` → `##### Concrete Step Or Detail`. Apply this whenever the outline would otherwise become a long flat list of peer sections.
 - Bound the depth you add. Nesting is for grouping distinct topics, not for cutting one explanation into pieces. Before creating a deeper level, check that the level above it already holds two or more distinct topics:
-  - Use `#####` only when its parent `####` has two or more `#####` children, or when a lone `#####` child sits under a `####` that also carries prose of its own.
+  - Use `#####` only when its parent `####` has two or more `#####` children. A lone `#####` under a `####` forces that `####` into one of two broken shapes: a pure wrapper when it holds no content, or a heading that carries prose before its single child when it does, which the rule below forbids. Promote the lone child to `####` instead.
   - Never emit a `####` or `#####` that is a pure wrapper, meaning a heading whose entire content is one child heading and nothing else.
   - Keep sibling headings at the same level. Do not let one item of a set sit at `#####` while its peers sit at `####`.
   - A short block with no code block, no table, and no distinctly named error, API, flag, or command is usually a list item rather than a topic. Leave it as a bullet under the heading that already exists instead of promoting it to a heading.
@@ -100,7 +97,7 @@ If any of these conditions are met, call `Skill("article-generation-style")` bef
   ```
 
 - Every article must include a `uuid` field in the frontmatter (see the example above), placed right after `id`. Generate a fresh UUID v4 (e.g. `9f2c5d1e-4a3b-4c2d-9e8f-1a2b3c4d5e6f`) for each new article — never reuse a uuid from an existing article.
-- When creating the Traditional Chinese version (`xxx-name-tc.md`) of an article, it must reuse the exact same `uuid` as the English `xxx-name.md`. The uuid identifies the article across languages, so the two files always share one value.
+- Write the article in English only. Never create a Traditional Chinese companion (`xxx-name-tc.md`), and never translate the article into Chinese, unless the user explicitly asks for a Chinese version in that request.
 
 - Immediately after the frontmatter block, every article must include the following `<style>` block:
 
@@ -121,9 +118,9 @@ If any of these conditions are met, call `Skill("article-generation-style")` bef
   ### Some Title {#some-title}
   ```
 
-- Whenever the article refers to another section, whether that section is in the same article or in another one, write `[#some-title]` and nothing else. The site fills in the section number and heading text and links to it, so never type the title yourself and never write a `[Some Title](#some-title)` link. Use `[$some-title]` when the number and the title are wanted without the angle brackets. The id must match a `{#...}` anchor in the same article, or one in the site-wide section map; an id that resolves nowhere is left on the page as literal text, so a typo is visible to the reader. Keep these references exactly as they are in the `-tc.md` companion, where they resolve against the Chinese file's own headings. Never put a literal `[#some-title]` inside a fenced code block, because the renderer expands the syntax before it parses the markdown and would rewrite the sample text.
+- Whenever the article refers to another section, whether that section is in the same article or in another one, write `[#some-title]` and nothing else. The site fills in the section number and heading text and links to it, so never type the title yourself and never write a `[Some Title](#some-title)` link. Use `[$some-title]` when the number and the title are wanted without the angle brackets. The id must match a `{#...}` anchor in the same article, or one in the site-wide section map; an id that resolves nowhere is left on the page as literal text, so a typo is visible to the reader. Never put a literal `[#some-title]` inside a fenced code block, because the renderer expands the syntax before it parses the markdown and would rewrite the sample text.
 
-- When creating a new article, write the file under the project's article directory (typically `src/mds/articles/tech/` or `docs/`) using the naming convention that prefixes the markdown file with a sequential number (check existing files for the next available number). Ask the user if the path is unknown.
+- When creating a new article, write it in the blog, not in the project the conversation is working in. The directory is `/Users/chingcheonglee/Repos/Javascript/machingclee.github.io.source/app/src/mds/articles/tech/`. Prefix the filename with the next sequential number (the highest existing `NNN-*.md` plus one) and set `id` to `blog0NNN`. Write the English article only. Do not also write a copy under the current project's `markdowns/` or `docs/` unless the user explicitly asks for one.
 
 
 ## Structure of the article

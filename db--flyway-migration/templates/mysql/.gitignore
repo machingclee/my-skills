@@ -10,9 +10,6 @@ buildNumber.properties
 .mvn/timing.properties
 .mvn/wrapper/maven-wrapper.jar
 
-# Node (if package.json scripts are used alongside Maven)
-node_modules/
-
 # IDE / OS
 .idea/
 *.iml
@@ -20,8 +17,8 @@ node_modules/
 *.swp
 .DS_Store
 
-# Local override confs with secrets (optional — uncomment if you keep secrets out of git)
-# flyway-*-prod.conf
+# Prod credentials live in this file — fill it in locally, never commit it.
+flyway-*-prod.conf
 # flyway-*-dev.conf
 
 # Env files if introduced later
