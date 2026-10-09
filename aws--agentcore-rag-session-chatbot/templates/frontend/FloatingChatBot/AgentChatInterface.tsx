@@ -406,6 +406,8 @@ function ChatInterface({
   const isMaximized = useAppSelector((state) => !!state.chat.chatbotMaximized);
   const [fetchSessionMessages] = ragApi.endpoints.getSessionMessages.useLazyQuery();
   const [fetchSideSessionMessages] = ragApi.endpoints.getSideSessionMessages.useLazyQuery();
+  const [saveSideSession] = ragApi.endpoints.saveSideSession.useMutation();
+  const [deleteSideSession] = ragApi.endpoints.deleteSideSession.useMutation();
   const { data: botCredentials, isLoading: isLoadingBotCredentials } = useGetAgentBotCredentialsQuery();
 
   const threadIdRef = useRef<string>(crypto.randomUUID());
@@ -747,13 +749,22 @@ function ChatInterface({
       sessionId: parentId,
       sideSessionId: sideId,
     }));
+    const sideSeq = sideSeqOf(sideId);
+    const username = botCredentials?.username;
+    if (username && sideSeq) {
+      void deleteSideSession({ sessionId: parentId, username, sideSeq })
+        .unwrap()
+        .catch((err) => {
+          console.error('Failed to delete side session', err);
+        });
+    }
     if (sideThreadIdRef.current !== sideId) return;
     // The still-current list, minus the entry this click removes from it.
     const next = (sessions.idToSession[parentId]?.sideSessions ?? [])
       .find((entry) => entry.sideSessionId !== sideId);
     if (next) void selectSideThread(next.sideSessionId);
     else clearSideThread();
-  }, [dispatch, sessions.idToSession, selectSideThread, clearSideThread]);
+  }, [dispatch, botCredentials, sessions.idToSession, selectSideThread, clearSideThread, deleteSideSession]);
 
   const loadSession = useCallback(async (sessionId: string) => {
     if (isLoading || isLoadingHistory) return;
@@ -964,6 +975,21 @@ function ChatInterface({
       // rename the thread it continues.
       ...(isNewThread ? { name: trimmed } : {}),
     }));
+    // The row hangs off the parent session, which is recorded on the first main
+    // message. A `/btw` before that has no row to attach to and stays local.
+    const username = botCredentials?.username;
+    if (username) {
+      void saveSideSession({
+        sessionId: parentId,
+        username,
+        sideSeq: sideSeqRef.current,
+        ...(isNewThread ? { name: trimmed } : {}),
+      })
+        .unwrap()
+        .catch((err) => {
+          console.error('Failed to save side session', err);
+        });
+    }
 
     const msgId = generateId();
     const runId = generateId();
@@ -1060,7 +1086,7 @@ function ChatInterface({
       // messages but not the cache).
       dispatch(ragApi.util.invalidateTags([{ type: 'SessionMessages', id: threadId }]));
     }
-  }, [sideIsLoading, isLoadingBotCredentials, botCredentials, messages, isLoading, sideAgentState, setActiveSideThread, dispatch]);
+  }, [sideIsLoading, isLoadingBotCredentials, botCredentials, messages, isLoading, sideAgentState, setActiveSideThread, saveSideSession, dispatch]);
 
   const closeSidePanel = useCallback(() => {
     setSidePanelOpen(false);

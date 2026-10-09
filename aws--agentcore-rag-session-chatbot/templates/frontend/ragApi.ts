@@ -121,6 +121,67 @@ export const ragApi = baseApi.injectEndpoints({
                 { type: "SessionMessages", id: sideThreadId(parentSessionId, sideSeq) },
             ],
         }),
+        /**
+         * Record a `/btw` thread on the parent session. A follow-up on a thread
+         * already recorded moves it back to the front and leaves its name alone,
+         * so `name` is only sent for a new thread. No retrieval API configured
+         * resolves quietly, same as the query above.
+         */
+        saveSideSession: builder.mutation<
+            void,
+            { sessionId: string; username: string; sideSeq: number; name?: string }
+        >({
+            queryFn: async ({ sessionId, username, sideSeq, name }) => {
+                if (!SESSION_API_BASE) return { data: undefined };
+                try {
+                    const response = await fetch(`${SESSION_API_BASE}/sessions/${sessionId}/side`, {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ username, sideSeq, ...(name ? { name } : {}) }),
+                    });
+                    if (!response.ok) {
+                        return { error: { status: response.status, data: await response.text() } };
+                    }
+                    return { data: undefined };
+                } catch (error) {
+                    return {
+                        error: {
+                            status: 0,
+                            data: error instanceof Error ? error.message : String(error),
+                        },
+                    };
+                }
+            },
+        }),
+        /**
+         * Drop one side thread from the parent session's list. The transcript in
+         * S3 is not touched, and `lastSideSeq` stays where it is.
+         */
+        deleteSideSession: builder.mutation<
+            void,
+            { sessionId: string; username: string; sideSeq: number }
+        >({
+            queryFn: async ({ sessionId, username, sideSeq }) => {
+                if (!SESSION_API_BASE) return { data: undefined };
+                try {
+                    const response = await fetch(
+                        `${SESSION_API_BASE}/sessions/${sessionId}/side/${sideSeq}?username=${encodeURIComponent(username)}`,
+                        { method: "DELETE" }
+                    );
+                    if (!response.ok) {
+                        return { error: { status: response.status, data: await response.text() } };
+                    }
+                    return { data: undefined };
+                } catch (error) {
+                    return {
+                        error: {
+                            status: 0,
+                            data: error instanceof Error ? error.message : String(error),
+                        },
+                    };
+                }
+            },
+        }),
     }),
 });
 

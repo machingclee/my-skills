@@ -48,6 +48,44 @@ provider:
 
   environment:
     BUCKET_NAME: ${self:custom.sessionBucket}
+    # Read by src/db/database.ts (pg Pool). DATABASE_URL is for `prisma
+    # generate` and `prisma migrate` only — the function never reads it, and
+    # node-postgres ignores the `schema` query param Prisma relies on.
+    DB_HOST: ${env:DB_HOST, ''}
+    DB_DATABASE: ${env:DB_DATABASE, ''}
+    DB_USER: ${env:DB_USER, ''}
+    DB_PASSWORD: ${env:DB_PASSWORD, ''}
+
+package:
+  patterns:
+    # Drop every OS-specific query engine. None of them run — Kysely does.
+    - "!node_modules/.prisma/client/libquery_engine-*"
+    # Drop the Prisma CLI and its transitive deps (@prisma/engines,
+    # @prisma/fetch-engine, @prisma/get-platform, …).
+    - "!node_modules/prisma/**"
+    - "!node_modules/@prisma/**"
+    # Put the generated client back. Application code imports types from it,
+    # and its index.js is what Node resolves if anything touches the package.
+    - "node_modules/@prisma/client/**"
+    # Prisma 7 moved the query engine into the client as base64 WASM, one copy
+    # per database and per build, ~4 MB each. Nothing here constructs a
+    # PrismaClient — Kysely runs the queries — so the whole runtime goes.
+    # Must come after the re-include above, or that line puts it back.
+    - "!node_modules/@prisma/client/runtime/**"
+    # prisma-kysely is a generator plugin; nothing imports it at runtime.
+    - "!node_modules/prisma-kysely/**"
+    # The `!node_modules/prisma/**` line only matches that one directory. Prisma
+    # 7's CLI pulls these in as separate packages, and each is only reachable
+    # through the CLI: pglite (~15 MB of WASM), effect, and Prisma Studio's
+    # react-dom and elkjs. jiti loads prisma.config.ts, and valibot and remeda
+    # validate @prisma/dev's config. None of them are imported by the function.
+    - "!node_modules/@electric-sql/**"
+    - "!node_modules/effect/**"
+    - "!node_modules/elkjs/**"
+    - "!node_modules/react-dom/**"
+    - "!node_modules/jiti/**"
+    - "!node_modules/valibot/**"
+    - "!node_modules/remeda/**"
 
 functions:
   api:

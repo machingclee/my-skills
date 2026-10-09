@@ -3,6 +3,7 @@ import cors from "cors";
 import cookieParser from "cookie-parser";
 import errorHandler from "./middlewares/errorHandler";
 import sessionMessagesRouter from "./routes/sessionMessages";
+import sessionsRouter from "./routes/sessions";
 
 export const app = express();
 
@@ -18,6 +19,7 @@ app.use(cookieParser());
 app.use(express.json());
 
 // --- Routes ---
+app.use(sessionsRouter);
 app.use(sessionMessagesRouter);
 
 // Error handler — MUST be registered last (after all routes).

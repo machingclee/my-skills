@@ -1,0 +1,96 @@
+// Everything lives in the existing `{{POSTGRES_SCHEMA}}` schema that
+// vector_db/create_table.py sets up. `embeddings` and `tags` are the tables
+// that schema already has; the rest model the chat history, one `user` row per
+// logged-in username and a `chat_session` row per conversation they start.
+
+generator client {
+  provider        = "prisma-client"
+  output          = "../generated/prisma"
+  previewFeatures = ["postgresqlExtensions"]
+}
+
+generator kysely {
+  provider      = "prisma-kysely"
+  output        = "../src/db"
+  enumFileName  = "enums.ts"
+  fileName      = "types.ts"
+  // Every model is @@schema("{{POSTGRES_SCHEMA}}"). prisma-kysely prefixes a
+  // table name with its schema unless that schema is the default, which would
+  // make Kysely emit "{{POSTGRES_SCHEMA}}"."user". The connection qualifies the
+  // schema itself (see src/db/database.ts), so the names stay bare.
+  defaultSchema = "{{POSTGRES_SCHEMA}}"
+}
+
+datasource db {
+  provider   = "postgresql"
+  schemas    = ["{{POSTGRES_SCHEMA}}"]
+  extensions = [vector(schema: "public"), pgcrypto]
+}
+
+/// {{POSTGRES_SCHEMA}}.embeddings — one row per vectorized article chunk.
+/// Created by vector_db/create_table.py.
+model embeddings {
+  id        String                       @id
+  content   String?
+  metadata  Json?
+  embedding Unsupported("vector(1536)")?
+
+  @@index([embedding], map: "embeddings_embedding_ivfflat")
+  @@schema("{{POSTGRES_SCHEMA}}")
+}
+
+/// {{POSTGRES_SCHEMA}}.tags — the article-tag vocabulary. One column, the tag.
+/// Created by vector_db/get_tags.py.
+model tags {
+  tag String @id
+
+  @@schema("{{POSTGRES_SCHEMA}}")
+}
+
+/// The login credential AuthState records. `username` is the key — it is what
+/// the login form posts, and what chat_session refers to. There is no password:
+/// this lambda never sees the credential the login checked.
+model user {
+  username      String         @id
+  created_at    DateTime       @default(now()) @db.Timestamptz(6)
+  updated_at    DateTime       @default(now()) @updatedAt @db.Timestamptz(6)
+  chat_sessions chat_session[]
+
+  @@schema("{{POSTGRES_SCHEMA}}")
+}
+
+/// One entry of chat-storage's `sessions`. `session_id` is the key of
+/// `idToSession`; `position` is its index in `sessionIds`, which is kept
+/// newest-first, so 0 is the most recently touched session.
+model chat_session {
+  id            String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  session_id    String
+  username      String
+  user          user                @relation(fields: [username], references: [username], onDelete: Cascade)
+  name          String              @default("Untitled")
+  updated_at    DateTime?           @db.Timestamptz(6)
+  /// Highest `:btw:<n>` ever minted. Outlives deleted side threads, so it never decreases.
+  last_side_seq Int                 @default(0)
+  position      Int                 @default(0)
+  side_sessions chat_side_session[]
+
+  @@unique([username, session_id])
+  @@index([username, position])
+  @@schema("{{POSTGRES_SCHEMA}}")
+}
+
+/// One entry of a session's `sideSessions`. `side_session_id` is
+/// `<parentSessionId>:btw:<n>`; `position` is its index in that list, newest first.
+model chat_side_session {
+  id              String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  side_session_id String
+  chat_session_id String       @db.Uuid
+  chat_session    chat_session @relation(fields: [chat_session_id], references: [id], onDelete: Cascade)
+  name            String
+  updated_at      DateTime?    @db.Timestamptz(6)
+  position        Int          @default(0)
+
+  @@unique([chat_session_id, side_session_id])
+  @@index([chat_session_id, position])
+  @@schema("{{POSTGRES_SCHEMA}}")
+}

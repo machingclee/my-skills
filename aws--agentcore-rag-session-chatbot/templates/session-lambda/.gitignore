@@ -1,4 +1,8 @@
 node_modules/
+# `prisma generate` output. Committed on purpose: the Lambda build does not
+# run prisma generate, and src/db/database.ts imports DB from src/db/types.ts.
+!src/db/types.ts
+!src/db/enums.ts
 dist/
 .serverless/
 .DS_Store

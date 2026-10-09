@@ -4,9 +4,12 @@ description: >-
   Scaffold the HKEV-style RAG chatbot stack: markdown → pgvector (isolated
   schema), Bedrock AgentCore Strands AG-UI agent, Cognito CUSTOM_JWT (dummy
   public bot user), S3 session history, session-retrieval Lambda, and a
-  floating React chat UI. Use when the user wants a docs RAG agent with
-  session retrieval, AgentCore + Cognito JWT, or to copy this stack into
-  another repo. Never paste secret values into templates, SKILL.md, or git.
+  floating React chat UI. Every setup persists the chat session list per user:
+  a `user` row keyed by the logged-in username, and a `chat_session` row per
+  conversation, created by the session Lambda through Prisma and Kysely. Use when the user wants a docs RAG agent with
+  session retrieval, AgentCore + Cognito JWT, per-user persisted chat sessions,
+  or to copy this stack into another repo. Never paste secret values into
+  templates, SKILL.md, or git.
 ---
 
 # AgentCore RAG + session chatbot
@@ -74,7 +77,10 @@ app/{{AGENT_NAME}}/   AgentCore AGUI  CUSTOM_JWT
     SideQuestionSessionManager → reads that prefix, writes sessions/{uuid}:btw:{n}/
     │
     ▼
-session-lambda  GET /api/sessions/:id/messages              (IAM GetObject/ListBucket)
+session-lambda  POST /api/sessions                         (record the browser's UUID)
+                GET  /api/sessions?username=                (the user's history list)
+                DELETE /api/sessions/:id?username=          (drop the history entry)
+                GET /api/sessions/:id/messages              (IAM GetObject/ListBucket)
                 GET /api/sessions/:parent/side/:n/messages  (/btw side threads only)
     │
     ▼
@@ -305,11 +311,33 @@ Bucket is **private**. Do not make it public. Lambda access is IAM in
 
 ```bash
 aws s3 mb s3://{{S3_SESSION_BUCKET}} --region {{AWS_REGION}}
-cd <repo>/agentcore-session-retrieval-lambda && npm install && npx serverless deploy
+cd <repo>/agentcore-session-retrieval-lambda
+cp .env.local.example.json .env.local.json   # fill DB_* and DATABASE_URL
+npm install
+yarn migrate:applied -- 20260101000000_baseline_existing_tables
+yarn migrate:deploy                          # creates user, chat_session, chat_side_session
+npx serverless deploy
 ```
+
+`yarn migrate:applied` records the baseline without running it, because
+`embeddings` and `tags` already exist from `create_table.py`. `migrate:deploy`
+then creates `{{POSTGRES_SCHEMA}}.user`, `chat_session`, and `chat_side_session`.
+`DATABASE_URL` (with `&schema={{POSTGRES_SCHEMA}}`) is what Prisma reads; the
+function reads `DB_HOST`, `DB_DATABASE`, `DB_USER`, and `DB_PASSWORD` instead,
+and qualifies the schema in SQL. Do not add `DATABASE_URL` to the Lambda
+environment, and do not set `search_path` as a connection option — a pooled
+connection rejects it.
 
 Put the printed `https://….execute-api.…/dev` into
 `VITE_SESSION_API_BASE` **plus** `/api`.
+
+`serverless-plugin-typescript-express` rewrites the handler from
+`src/server.handler` to `dist/server.handler` and compiles with plain `tsc`.
+`tsconfig.json` keeps `rootDir` at `src`, and the Kysely client lives at
+`src/db/` so the compile emits `dist/server.js`. A second directory in
+`include` makes `tsc` emit `dist/src/server.js` instead, which the handler
+never loads — the deploy then reports "No changes to deploy" because the stale
+`dist/server.js` is unchanged. If that happens, delete `dist/` and redeploy.
 
 ### 8. AgentCore deploy
 
@@ -332,6 +360,147 @@ one. Put the invoke URL in `VITE_AGENT_ENDPOINT`.
 - Cognito pool/client ids (not secrets besides the agreed dummy password)
 - Session API URL and whether `create_table.py` / first inject ran
 - Next: fill `.env`, `create_table.py`, `sync_articles.py --backfill-hashes` (or `--apply` for a new corpus), `agentcore deploy`, attach S3 policy
+
+## Chat session list
+
+Every setup persists the history list per user. There is no localStorage
+version to fall back to: the browser still mints the session id with
+`crypto.randomUUID()`, but the row is recorded in `{{POSTGRES_SCHEMA}}` before
+the agent is asked, so the list follows the logged-in user across browsers.
+
+The object the frontend holds and the object `GET /api/sessions` returns are
+the same shape.
+
+```ts
+type ChatSessionsState = {
+  sessionIds: string[];                              // newest first
+  idToSession: {
+    [sessionId: string]: {
+      name: string;
+      updatedAt?: string;
+      lastSideSeq?: number;                          // highest :btw:<n> ever minted
+      sideSessions?: { sideSessionId: string; name: string; updatedAt?: string }[];
+    };
+  };
+};
+```
+
+`sessionIds[0]` is the most recently touched session. `sideSessions` is omitted
+entirely when a session has none — it is never an empty array. `lastSideSeq`
+never decreases, because a deleted side thread's turns are still on S3.
+
+### Tables
+
+The rows live in `{{POSTGRES_SCHEMA}}` beside `embeddings` and `tags`, and
+Kysely queries them — Prisma only owns the schema and the generated types. The
+schema, the two migrations, and `src/db/database.ts` ship in
+`templates/session-lambda`, so a scaffold already contains them.
+
+`user` is created on first use from the username alone. It has no password
+column, because this lambda never sees the credential the login checked, and
+`username` is its primary key — `chat_session` stores that username directly
+rather than a surrogate id. `chat_session.session_id` is the browser's UUID and
+`position` is its index in `sessionIds`, so `0` is the newest.
+`chat_side_session.side_session_id` is `<parentSessionId>:btw:<n>`.
+
+```prisma
+model user {
+  username      String         @id
+  created_at    DateTime       @default(now()) @db.Timestamptz(6)
+  updated_at    DateTime       @default(now()) @updatedAt @db.Timestamptz(6)
+  chat_sessions chat_session[]
+
+  @@schema("{{POSTGRES_SCHEMA}}")
+}
+
+model chat_session {
+  id            String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  session_id    String
+  username      String
+  user          user                @relation(fields: [username], references: [username], onDelete: Cascade)
+  name          String              @default("Untitled")
+  updated_at    DateTime?           @db.Timestamptz(6)
+  last_side_seq Int                 @default(0)
+  position      Int                 @default(0)
+  side_sessions chat_side_session[]
+
+  @@unique([username, session_id])
+  @@index([username, position])
+  @@schema("{{POSTGRES_SCHEMA}}")
+}
+
+model chat_side_session {
+  id              String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  side_session_id String
+  chat_session_id String       @db.Uuid
+  chat_session    chat_session @relation(fields: [chat_session_id], references: [id], onDelete: Cascade)
+  name            String
+  updated_at      DateTime?    @db.Timestamptz(6)
+  position        Int          @default(0)
+
+  @@unique([chat_session_id, side_session_id])
+  @@index([chat_session_id, position])
+  @@schema("{{POSTGRES_SCHEMA}}")
+}
+```
+
+`gen_random_uuid()` comes from `pgcrypto`. On a shared database that extension
+may be installed in another schema, in which case the default has to be
+schema-qualified (`blog_system.gen_random_uuid()`). Kysely does not apply
+Prisma's client-side defaults, so the insert passes `id` and `updated_at`
+explicitly anyway. Regenerate the types with the `lambda--prisma-kysely` skill;
+its Prisma 7 section also covers the migration scripts and the shadow-database
+drift a shared database causes. `src/db/types.ts` is committed, because the
+Lambda build does not run `prisma generate`.
+
+### Schema qualification
+
+`prisma-kysely` is told `defaultSchema = "{{POSTGRES_SCHEMA}}"`, so the
+generated SQL names tables without a schema. That resolves only when the
+connection's `search_path` includes `{{POSTGRES_SCHEMA}}`, and a role's default
+is `"$user", public` — Postgres then reports `relation "chat_session" does not
+exist` even though the table is there.
+
+`src/db/database.ts` fixes it with `new Kysely<DB>(…).withSchema("{{POSTGRES_SCHEMA}}")`,
+which emits `"{{POSTGRES_SCHEMA}}"."chat_session"`. Do not set `search_path`
+through the pool's `options` instead: the Neon pooler refuses it with
+`unsupported startup parameter in options: search_path`. Do not hand the Pool
+`DATABASE_URL` either — node-postgres ignores the `schema` query param that
+Prisma uses, so the same URL that makes `yarn migrate:deploy` land tables in
+the right schema does nothing for the function.
+
+### Endpoints
+
+All five live in `src/routes/sessions.ts`, mounted beside the message routes.
+`sessionId` must be a UUID — the same guard that keeps `/btw` side threads out
+of the history — and every one is scoped by `username`.
+
+| Endpoint | Body / query | Behaviour |
+|---|---|---|
+| `POST /api/sessions` | `{ sessionId, username, name? }` | Upserts `user` by username, inserts `chat_session` at `position` 0, shifts that user's other rows up by 1. `onConflict (username, session_id) doNothing`, so a retry returns the existing row with `created: false`. `201` when created, `200` otherwise. |
+| `GET /api/sessions` | `?username=` | The `ChatSessionsState` object exactly: `sessionIds` ordered by `position`, side threads nested with `jsonArrayFrom` and ordered by their own `position`. `sideSessions` is dropped when empty. |
+| `DELETE /api/sessions/:sessionId` | `?username=` | Deletes the `chat_session` row for that username. `chat_side_session` goes with it through `ON DELETE CASCADE`. Returns `{ sessionId, deleted }` and `200` even when no row matched, so deleting a session that only ever lived in the browser is safe. The S3 transcript is not touched. |
+| `POST /api/sessions/:sessionId/side` | `{ username, sideSeq, name? }` | Records a `/btw` thread (`<sessionId>:btw:<sideSeq>`) on the parent and raises `last_side_seq` when `sideSeq` is higher. A new thread takes `position` 0 and shifts the others up; a follow-up moves the existing row back to the front and leaves its name alone. `201` when created, `200` when touched, `404` when the parent was never recorded. |
+| `DELETE /api/sessions/:sessionId/side/:sideSeq` | `?username=` | Drops that one side thread from the parent's list. `last_side_seq` stays where it is, so the number is never minted again, and the S3 transcript is not touched. Returns `{ sideSessionId, deleted }` and `200` even when no row matched. |
+
+### Frontend wiring
+
+`AuthState` holds `username`, set from the login form only after login
+succeeds. `persistChatState` writes only the window geometry — `sessions` is
+not stored locally, because the database is the source of it.
+
+- On startup, `getChatSessions(username)` runs once and its result is
+  dispatched through `setChatSessions`, which passes it through
+  `normalizeSessions`. Skip the query when no username is known.
+- `handleSend` calls `createSession(sessionId, username, name)` before the
+  agent turn, guarded by a ref so a session is recorded once. The agent call
+  still happens after it resolves.
+- `deleteSession` dispatches `removeChatSession` immediately and then fires
+  `DELETE /api/sessions/:sessionId?username=` without awaiting it. The list is
+  already gone; a failed call only leaves a row the next load would show.
+
+A browser that previously kept its sessions in `chat-storage` keeps them there,
+unread. Nothing migrates them.
 
 ## Side questions (`/btw`)
 
@@ -356,12 +525,17 @@ agent remembers. Ships in the templates; nothing to enable.
   deleting the active session resets it.
 - **Every** side thread the session has asked is recorded, newest first, in
   `ChatSession.sideSessions` (`{ sideSessionId, name, updatedAt }`, where `name` is the
-  question that opened it). The panel's list button shows them with the header history
-  panel's own classes: a row switches threads (its turns come back through
-  `GET .../side/:n/messages`), the row's trash drops it, and deleting the thread on
-  screen falls back to the newest one left. `loadSession` resumes `sideSessions[0]`,
-  which is what makes "the latest one by default" fall out of the ordering rather than
-  a stored pointer.
+  question that opened it). Recording is `saveSideSession`, a `ragApi` mutation that
+  `POST`s `/api/sessions/:sessionId/side` with `{ username, sideSeq, name? }` — `name`
+  only on a new thread, since a follow-up must not rename it. The username is the bot
+  credential `useGetAgentBotCredentialsQuery` already loaded. The panel's list button
+  shows them with the header history panel's own classes: a row switches threads (its
+  turns come back through `GET .../side/:n/messages`), and the row's trash drops it
+  through `deleteSideSession`, which `DELETE`s `/api/sessions/:sessionId/side/:sideSeq`.
+  Deleting the thread on screen falls back to the newest one left. `loadSession`
+  resumes `sideSessions[0]`, which is what makes "the latest one by default" fall out
+  of the ordering rather than a stored pointer. Both calls are fire-and-forget: the
+  slice is already updated, and a failed call only leaves the database behind.
 - **The sequence floor is tracked separately.** `ChatSession.lastSideSeq` holds the
   highest `:btw:<n>` ever minted and outlives deletion, because a deleted thread's turns
   are still on S3 — handing its number to a new thread would read them back as that
@@ -568,6 +742,18 @@ Do **not** hook sync into the docs-site GitHub Actions workflow unless that job 
     `<body>` — outside the React root — and a React `onDoubleClick` never fires.
     Do not "simplify" it back. The same handler is what lets a drag start on the
     header without a button press starting one.
+20. `relation "chat_session" does not exist` with the table present means the
+    connection's `search_path` does not include `{{POSTGRES_SCHEMA}}`. Qualify
+    with `withSchema` in `src/db/database.ts`. Do not set `search_path` in the
+    pool `options` — a pooled connection (Neon) rejects that startup parameter.
+21. `DATABASE_URL` is for Prisma only. The function reads `DB_HOST`,
+    `DB_DATABASE`, `DB_USER`, `DB_PASSWORD`, and node-postgres ignores the
+    `schema` query param, so adding `DATABASE_URL` to the Lambda environment
+    changes nothing.
+22. `serverless deploy` printing "No changes to deploy" while the source
+    changed means `tsc` emitted under `dist/src/` and the handler still loads
+    the stale `dist/server.js`. Keep `rootDir` at `src` with a single `include`
+    directory. Delete `dist/` and redeploy.
 
 ## Template files
 
@@ -590,7 +776,12 @@ templates/
     create_table.py             embeddings + tags (tag TEXT PRIMARY KEY)
     get_tags.py                 frontmatter → {{POSTGRES_SCHEMA}}.tags
     step3_inject_new_article.py pdf-filepath + page_range from ## pN-M + page from <!-- page N -->
-  session-lambda/ ← Express + serverless.yml IAM
+  session-lambda/ ← Express + serverless.yml IAM + Prisma chat tables
+    prisma/schema.prisma        user, chat_session, chat_side_session in {{POSTGRES_SCHEMA}}
+    prisma/migrations/          baseline (mark applied) + the chat tables (deploy)
+    src/db/database.ts          pg Pool; withSchema("{{POSTGRES_SCHEMA}}"), never a search_path option
+    src/db/types.ts             committed prisma-kysely output; the Lambda build does not generate
+    src/routes/sessions.ts      POST/GET/DELETE /api/sessions, scoped by username
     src/messages.ts             shared messagesPrefix + readSessionMessages, used by both
                                 routes; `objectCount` keeps the session route's 404 (no
                                 objects) apart from a 200 with zero messages (unparseable)

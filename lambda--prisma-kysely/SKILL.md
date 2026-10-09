@@ -2,19 +2,16 @@
 name: lambda--prisma-kysely
 description: >-
   Wire Prisma as a schema source and Kysely as the query layer into a Node.js
-  AWS Lambda deployed with the Serverless Framework. Pins the versions used by
-  Alice Timetable (Prisma 5.9 / @prisma/client 5.9, prisma-kysely 1.7.1, kysely
-  0.27.2, pg 8.11), generates db/types.ts + db/enums.ts, connects with a
-  PostgresDialect pool, and keeps the Lambda zip small by excluding the Prisma
-  CLI, engines, and query binaries. Documents jsonArrayFrom (1:N left join into
-  an array) and jsonObjectFrom (1:1 / aggregate left join into an object). The
-  Prisma 7 variant (section 2b) adds prisma.config.ts with a migrations path and
-  the migrate:create (--create-only), migrate:diff (live database to schema,
-  bypassing the shadow database), migrate:deploy, and migrate:applied
-  (--applied) scripts, env-cmd loaded from a JSON env file. Use when adding
-  Prisma + Kysely to another Node Lambda, slimming a Serverless package that
-  pulls in Prisma, writing a Kysely nested left join, or adding Prisma migrate
-  scripts to one.
+  AWS Lambda deployed with the Serverless Framework. Two pinned layouts: Prisma
+  5.9 (Alice Timetable) and Prisma 7.10 with prisma-kysely 3.2.1, kysely 0.27.6,
+  and pg 8.23 (the current one). The Prisma 7 layout generates src/db/types.ts,
+  qualifies the schema with Kysely's withSchema (a pooled connection rejects
+  search_path as a startup option), loads a JSON env file through env-cmd and
+  serverless-dotenv-plugin, and keeps the Lambda zip small by excluding the
+  Prisma CLI and every package only the CLI reaches — pglite, effect, elkjs,
+  react-dom, jiti, valibot, remeda. Use when adding Prisma + Kysely to a Node
+  Lambda, slimming a Serverless package that pulls in Prisma, writing a Kysely
+  nested left join, or adding Prisma migrate scripts to one.
 ---
 
 # Prisma + Kysely on a Node.js Lambda (Serverless Framework)
@@ -24,7 +21,27 @@ schema and generates types. **Kysely runs every query.** `PrismaClient` is
 never instantiated at runtime, so the Lambda does not need the Prisma query
 engine.
 
-## Versions (pin these)
+## Versions
+
+Prisma 7 is the layout to copy. The 5.9 pins are only for a project that
+already runs them — do not upgrade such a project past 5.x, because Prisma 7
+moves the connection into `prisma.config.ts` and replaces the
+`prisma-client-js` generator. That is section 2b, not a different skill.
+
+### Prisma 7 (current)
+
+| Package | Range in package.json | Where |
+|---|---|---|
+| `prisma` | `^7.10.0` | devDependencies |
+| `@prisma/client` | `^7.10.0` | dependencies |
+| `prisma-kysely` | `^3.2.1` | devDependencies (needs prisma >= 7) |
+| `kysely` | `^0.27.6` | dependencies |
+| `pg` | `^8.23.1` | dependencies |
+| `@types/pg` | `^8.23.1` | devDependencies |
+| `dotenv` | `^18.0.6` | devDependencies (`prisma.config.ts` loads it) |
+| `env-cmd` | `^10.1.0` | devDependencies |
+
+### Prisma 5.9 (do not start a new project on this)
 
 | Package | Range in package.json | Installed when this was written |
 |---|---|---|
@@ -33,11 +50,6 @@ engine.
 | `prisma-kysely` | `^1.7.1` | 1.8.0 |
 | `kysely` | `^0.27.2` | 0.27.4 |
 | `pg` | `^8.11.3` | — |
-
-Do not upgrade Prisma past 5.x in a project that copies the layout above.
-Prisma 7 moves the connection into `prisma.config.ts`, replaces the
-`prisma-client-js` generator, and needs the migrate scripts — that variant is
-section 2b below, not a different skill.
 
 `prisma` and `prisma-kysely` are **generate-time only**. They must not ship
 inside the Lambda zip. `@prisma/client` stays only because application code
@@ -50,10 +62,11 @@ have to be stripped (see packaging below).
 
 ```
 prisma/schema.prisma
-  generator client   → node_modules/.prisma/client   (TS types: Student, Role, …)
-  generator kysely   → db/types.ts + db/enums.ts     (Kysely DB interface)
+  generator client   → generated types (Prisma 5: node_modules/.prisma/client,
+                       Prisma 7: generated/prisma)
+  generator kysely   → src/db/types.ts + src/db/enums.ts   (Prisma 5: db/)
                               │
-db/database.ts  ─ new Kysely<DB>({ PostgresDialect, pg.Pool })
+src/db/database.ts  ─ new Kysely<DB>({ PostgresDialect, pg.Pool }).withSchema(schema)
                               │
 dao / repository / controller   ← all queries go through `db`
 ```
@@ -65,7 +78,10 @@ dao / repository / controller   ← all queries go through `db`
   Kysely table names are those keys, so SQL quotes them as `"Student"`.
 - **`pg` Pool** — the only runtime database driver. Neon needs `ssl: true`.
 
-## 1. schema.prisma generators
+## 1. schema.prisma generators (Prisma 5.9)
+
+Prisma 7 uses the generators in section 2b instead. This block is the 5.9
+layout, kept for a project that already runs it.
 
 ```prisma
 generator client {
@@ -130,14 +146,26 @@ generator client {
   output   = "../generated/prisma"
 }
 
+generator kysely {
+  provider      = "prisma-kysely"
+  output        = "../src/db"
+  enumFileName  = "enums.ts"
+  fileName      = "types.ts"
+  // prisma-kysely prefixes a table name with its schema unless that schema is
+  // the default, which would make Kysely emit "app_schema"."table". The
+  // connection qualifies the schema itself (section 3), so the names stay bare.
+  defaultSchema = "app_schema"
+}
+
 datasource db {
   provider = "postgresql"
+  schemas  = ["app_schema"]
 }
 ```
 
 ```ts
 // prisma.config.ts — only `prisma generate` and the migrate commands read this.
-// db/database.ts talks to Postgres through pg and never touches DATABASE_URL.
+// src/db/database.ts talks to Postgres through pg and never touches DATABASE_URL.
 import "dotenv/config";
 import { defineConfig, env } from "prisma/config";
 
@@ -172,7 +200,7 @@ rather than `.env`:
 
 | Script | Runs | When |
 |---|---|---|
-| `generate` | `prisma generate` | after every schema change; writes the client and `db/types.ts` |
+| `generate` | `prisma generate` | after every schema change; writes the client and `src/db/types.ts` |
 | `migrate:create` | `migrate dev --create-only` | writes the SQL for review, applies nothing |
 | `migrate:diff` | `migrate diff` from the live database to the schema | the SQL the database is missing, printed to stdout, no shadow database |
 | `migrate:deploy` | `migrate deploy` | applies pending migrations |
@@ -235,12 +263,16 @@ Two things that bite on the first run:
   that already exist. Review it and remove those statements before deploying, or
   the deploy fails on them. Use `migrate:applied` for a migration whose changes
   are already in the database.
-- **`Unsupported(...)` columns vanish from `db/types.ts`.** `prisma-kysely`
+- **`Unsupported(...)` columns vanish from `src/db/types.ts`.** `prisma-kysely`
   silently drops them on every generate — a `vector(1536)` column is the usual
   case. Add the field back by hand after each `npm run generate`, with a comment
   saying it is hand-kept, or the Kysely type loses the column.
 
 ## 3. Runtime client — db/database.ts
+
+On the Prisma 7 layout this file lives at `src/db/database.ts`, next to the
+generated `types.ts`, so it stays inside `tsconfig`'s `rootDir` (see section
+5). The 5.9 layout keeps it at `db/database.ts`.
 
 ```ts
 import { Kysely, PostgresDialect } from "kysely";
@@ -261,6 +293,11 @@ const dialect = new PostgresDialect({
   }),
 });
 
+// The tables live in their own schema (see prisma/schema.prisma), but a fresh
+// connection's search_path is "$user", public, so an unqualified table name
+// misses and Postgres reports `relation "<table>" does not exist` for a table
+// that is right there. A pooled connection (Neon) rejects `search_path` as a
+// startup option, so the schema is qualified in the SQL instead.
 export const db = new Kysely<DB>({
   dialect,
   log(event) {
@@ -269,18 +306,35 @@ export const db = new Kysely<DB>({
       console.log(event.query.parameters);
     }
   },
-});
+}).withSchema("app_schema");
 ```
+
+`withSchema` emits `"app_schema"."table"` for every query, including the ones
+inside `jsonArrayFrom` and `jsonObjectFrom`. Replace `app_schema` with the
+schema the models declare. Skip the call only when the tables really are in
+`public` and the role's `search_path` includes it.
 
 Declare the pool at module scope so warm Lambda invocations reuse it. Do not
 construct a new `Kysely` per request.
+
+Two things that look like they would set the schema and do not:
+
+- **`DATABASE_URL`'s `schema` query param.** Prisma reads it and sets
+  `search_path` before running migrations, which is why `yarn migrate:deploy`
+  lands tables in the right schema. node-postgres ignores the parameter, so
+  handing the Pool that URL — or adding it to the Lambda environment — changes
+  nothing about where queries look.
+- **`options: "-c search_path=app_schema,public"` on the Pool.** Works against
+  Postgres directly and fails through a transaction pooler. Neon replies
+  `unsupported startup parameter in options: search_path` and points at its
+  connection-errors page. `withSchema` is the fix that works in both cases.
 
 Env vars the function needs (set under `provider.environment`, not hardcoded
 with real secrets):
 
 | Var | Used by |
 |---|---|
-| `DATABASE_URL` | `prisma generate` / migrate only. Not read by Kysely. |
+| `DATABASE_URL` | `prisma generate` / migrate only. Not read by Kysely. Do not put it in `provider.environment`. |
 | `DB_HOST` | `pg` Pool |
 | `DB_DATABASE` | `pg` Pool |
 | `DB_USER` | `pg` Pool |
@@ -343,24 +397,58 @@ package:
     # only if they match that earlier glob — they don't (engines live under
     # node_modules/.prisma, not @prisma/client), so this line is safe.
     - "node_modules/@prisma/client/**"
-    # Dev-only tools that sometimes get hoisted into dependencies.
-    - "!node_modules/nodemon/**"
-    - "!node_modules/cross-env/**"
+    # Prisma 7 moved the query engine into the client as base64 WASM, one copy
+    # per database and per build, ~4 MB each. Nothing here constructs a
+    # PrismaClient — Kysely runs the queries — so the whole runtime goes.
+    # Must come after the re-include above, or that line puts it back.
+    - "!node_modules/@prisma/client/runtime/**"
+    # prisma-kysely is a generator plugin; nothing imports it at runtime.
+    - "!node_modules/prisma-kysely/**"
+    # Prisma 7's CLI pulls these in as separate packages, and each is only
+    # reachable through the CLI: pglite (~15 MB of WASM), effect, and Prisma
+    # Studio's react-dom and elkjs. jiti loads prisma.config.ts, and valibot
+    # and remeda validate @prisma/dev's config. None are imported by the
+    # function. The `!node_modules/prisma/**` line only matches that one
+    # directory, so these need their own.
+    - "!node_modules/@electric-sql/**"
+    - "!node_modules/effect/**"
+    - "!node_modules/elkjs/**"
+    - "!node_modules/react-dom/**"
+    - "!node_modules/jiti/**"
+    - "!node_modules/valibot/**"
+    - "!node_modules/remeda/**"
 ```
+
+The `@prisma/client/runtime` line and the block from `@electric-sql` down are
+Prisma 7 only. A 5.9 project has none of those packages; drop those lines
+there. Drop the `@prisma/client` re-include as well if nothing imports from
+it — with the types coming from `src/db/types.ts`, the client is optional.
 
 What this removes, and why it is safe:
 
 | Excluded | Why it is huge | Why the function still works |
 |---|---|---|
 | `libquery_engine-*` | native binary per OS, 10–20 MB each | no `PrismaClient`, so nothing dlopens it |
+| `@prisma/client/runtime` | Prisma 7's query engine as base64 WASM, ~4 MB a copy | Kysely runs the queries |
 | `node_modules/prisma/**` | the CLI | generate happens before deploy, on your machine |
 | `node_modules/@prisma/**` except `client` | engines, internals | only `@prisma/client` type imports are used |
-
-Also exclude `prisma-kysely` if Serverless starts packaging it (`"!node_modules/prisma-kysely/**"`). It is a generator plugin; nothing imports it at runtime.
+| `@electric-sql`, `effect`, `elkjs`, `react-dom` | pglite's WASM, Prisma Studio | only the CLI imports them |
+| `jiti`, `valibot`, `remeda` | config loading and validation | only `prisma.config.ts` needs them |
+| `prisma-kysely` | generator plugin | nothing imports it at runtime |
 
 Do **not** exclude `kysely` or `pg`. Those are the runtime.
 
-Runtime in the working project is `nodejs18.x`. The packaging rules do not
+`serverless-plugin-typescript-express` rewrites the handler from
+`src/server.handler` to `dist/server.handler` and compiles with plain `tsc`.
+Keep `rootDir` at `src` and give `include` a single directory. The generated
+types and `database.ts` therefore live under `src/db/`, not a top-level `db/`.
+A second directory in `include` makes `tsc` treat the project root as the
+compilation root and emit `dist/src/server.js`, which the handler never loads —
+`serverless deploy` then reports "No changes to deploy" because the stale
+`dist/server.js` is byte-identical to what is already up. Delete `dist/` and
+redeploy after fixing it.
+
+Runtime in the working project is `nodejs22.x`. The packaging rules do not
 depend on the runtime version.
 
 ## 6. jsonArrayFrom and jsonObjectFrom
@@ -498,20 +586,111 @@ Prefer a plain `.leftJoin(...).select("Course.course_name")` when you only
 need a couple of scalar columns from a has-one table. Reach for the helpers
 when the nested value is an array or a structured object.
 
+## 7. Env file and serverless.yml
+
+The env lives in JSON, not `.env`, so both the scripts and the deploy need a
+reader for it. `env-cmd -f .env.local.json` covers the scripts.
+`serverless-dotenv-plugin` covers the deploy, but it parses `KEY=VALUE`, so it
+needs a parser that reads JSON. `jsonParser.js` at the project root:
+
+```js
+const fs = require("fs");
+
+// Reads env values from JSON files (NOT KEY=VALUE .env): scalars become
+// strings, arrays join with commas, objects are ignored. Multiple `path`
+// entries merge in order, later wins.
+module.exports = function ({ paths }) {
+  const envVarsArray = paths.map((path) => {
+    try {
+      const jsonData = JSON.parse(fs.readFileSync(path, "utf8"));
+      const stringifiedData = {};
+      for (const key in jsonData) {
+        const value = jsonData[key];
+        if (["string", "boolean", "number"].includes(typeof value)) {
+          stringifiedData[key] = jsonData[key];
+        } else if (Array.isArray(jsonData[key])) {
+          stringifiedData[key] = jsonData[key].map((v) => String(v)).join(",");
+        }
+      }
+      return stringifiedData;
+    } catch (error) {
+      console.error(`Error reading/parsing ${path}:`, error.message);
+      return {};
+    }
+  });
+  return envVarsArray.reduce((acc, curr) => ({ ...acc, ...curr }), {});
+};
+```
+
+`.env.local.example.json`, committed with empty values. Copy it to
+`.env.local.json` and fill it locally:
+
+```json
+{
+  "DB_HOST": "",
+  "DB_DATABASE": "",
+  "DB_USER": "",
+  "DB_PASSWORD": "",
+  "DATABASE_URL": "postgresql://USER:PASSWORD@HOST/DATABASE?sslmode=require&schema=app_schema"
+}
+```
+
+`&schema=app_schema` is for Prisma. It is what makes `yarn migrate:deploy`
+create tables in that schema, and it is not read by the function.
+
+`serverless.yml`:
+
+```yaml
+plugins:
+  - serverless-plugin-typescript-express
+  - serverless-plugin-common-excludes
+  - serverless-dotenv-plugin
+
+custom:
+  dotenv:
+    path:
+      - .env.local.json
+    dotenvParser: "./jsonParser.js"
+    logging: false
+
+provider:
+  environment:
+    # Read by src/db/database.ts. DATABASE_URL is for prisma only — do not add it.
+    DB_HOST: ${env:DB_HOST, ''}
+    DB_DATABASE: ${env:DB_DATABASE, ''}
+    DB_USER: ${env:DB_USER, ''}
+    DB_PASSWORD: ${env:DB_PASSWORD, ''}
+```
+
+`.gitignore`:
+
+```
+# `prisma generate` output. Committed on purpose: the Lambda build does not
+# run prisma generate, and src/db/database.ts imports DB from src/db/types.ts.
+!src/db/types.ts
+!src/db/enums.ts
+```
+
+The `!` lines only matter if a parent gitignore ignores `*.ts` or the whole
+`db/` directory. Either way, commit `src/db/types.ts`.
+
 ## Adding this to another Serverless Node Lambda
 
-1. Install the pinned packages: `prisma@^5.9.0`, `@prisma/client@^5.9.0`,
-   `prisma-kysely@^1.7.1`, `kysely@^0.27.2`, `pg@^8.11.3`.
-2. Add both generators to `schema.prisma` exactly as in section 1.
-3. `npx prisma generate` (or `npm run generate` on the Prisma 7 layout in
-   section 2b) and commit `db/types.ts` + `db/enums.ts`. On Prisma 7, also add
-   the `migrate:create`, `migrate:deploy`, and `migrate:applied` scripts from
-   that section.
-4. Add `db/database.ts` from section 3. Put `DB_HOST`, `DB_DATABASE`,
-   `DB_USER`, `DB_PASSWORD` in `provider.environment`.
-5. Paste the `package.patterns` from section 5 into `serverless.yml`.
-6. Query only through `db`. Do not import `PrismaClient` unless you also
-   change `binaryTargets` and the exclude list.
-7. For nested reads, copy the `jsonArrayFrom` / `jsonObjectFrom` shapes from
+1. Install the Prisma 7 packages from the versions table: `prisma@^7.10.0` and
+   `dotenv` as dev dependencies, `@prisma/client@^7.10.0`, `kysely@^0.27.6`,
+   and `pg@^8.23.1` as dependencies, plus `@types/pg` and `env-cmd`.
+2. Add `prisma.config.ts` and both generators from section 2b, with the kysely
+   generator's `output` at `../src/db` and `defaultSchema` set to the schema.
+3. Add the five scripts from section 2b. Run `npm run generate` and commit
+   `src/db/types.ts`.
+4. Add `src/db/database.ts` from section 3, with `withSchema` set to the same
+   schema. Do not set `search_path` on the Pool.
+5. Add `.env.local.example.json`, `jsonParser.js`, and the `serverless.yml`
+   blocks from section 7. Fill `.env.local.json` locally.
+6. Paste the `package.patterns` from section 5 into `serverless.yml`, including
+   the Prisma 7 exclusions.
+7. Query only through `db`. Do not import `PrismaClient` unless you also change
+   `binaryTargets` and the exclude list.
+8. For nested reads, copy the `jsonArrayFrom` / `jsonObjectFrom` shapes from
    section 6. Correlate with `whereRef`, and `limit(1)` every `jsonObjectFrom`
    that is not an aggregate.
