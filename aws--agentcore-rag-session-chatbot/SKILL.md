@@ -3,13 +3,15 @@ name: aws--agentcore-rag-session-chatbot
 description: >-
   Scaffold the HKEV-style RAG chatbot stack: markdown → pgvector (isolated
   schema), Bedrock AgentCore Strands AG-UI agent, Cognito CUSTOM_JWT (dummy
-  public bot user), S3 session history, session-retrieval Lambda, and a
-  floating React chat UI. Every setup persists the chat session list per user:
-  a `user` row keyed by the logged-in username, and a `chat_session` row per
-  conversation, created by the session Lambda through Prisma and Kysely. Use when the user wants a docs RAG agent with
-  session retrieval, AgentCore + Cognito JWT, per-user persisted chat sessions,
-  or to copy this stack into another repo. Never paste secret values into
-  templates, SKILL.md, or git.
+  public bot user), S3 session history, session-retrieval Lambda, a floating
+  React chat UI, and an optional second MCP runtime whose OAuth 2.1 login is
+  the docs site's own OIDC issuer. Every setup persists the chat session list per
+  user: a `user` row keyed by the logged-in username, and a `chat_session` row
+  per conversation, created by the session Lambda through Prisma and Kysely.
+  Use when the user wants a docs RAG agent with session retrieval, AgentCore +
+  Cognito JWT, per-user persisted chat sessions, a custom MCP server
+  authenticated with OIDC, or to copy this stack into another repo. Never paste
+  secret values into templates, SKILL.md, or git.
 ---
 
 # AgentCore RAG + session chatbot
@@ -41,6 +43,8 @@ the slash command if the request matches.
 - "Set up AgentCore + pgvector + floating chat + session Lambda"
 - "Add a docs chatbot with AgentCore and S3 session history"
 - "Reuse the echarge-documentation RAG / session chatbot"
+- "Add an MCP server for the docs, with a browser login"
+- "Expose the RAG search as an MCP tool authenticated by our own OIDC issuer"
 
 **Do not use** `/aws--agentcore-rag-pgvector` (removed). For a bare
 `agentcore create` only, use `/aws--agentcore-boilerplate`.
@@ -86,6 +90,15 @@ session-lambda  POST /api/sessions                         (record the browser's
     ▼
 frontend FloatingChatBot  Amplify signIn(dummy bot) + SSE /invocations
     CustomMarkdown renders /files/*.pdf[#page=N] as a chip from {children}
+
+app/{{AGENT_NAME}}/mcp_main.py   a SECOND runtime, protocol MCP (optional)
+    one tool, search_docs: rephrase → find_tags → search → rerank
+    AgentCore answers a tokenless call with 401 + resource_metadata
+    │
+    ▼
+docs site (the OIDC issuer)   /.well-known/oauth-authorization-server
+    POST /oauth/register → GET /oauth/authorize → /mcp-login
+    → GET /oauth/complete → POST /oauth/token → the same RS256 JWT
 ```
 
 The S3 bucket is **private**. Lambda IAM is in `serverless.yml`. AgentCore
@@ -158,6 +171,8 @@ Replace in **every** copied file. Never substitute secret **values**.
 | `{{CHAT_TITLE}}` | header in FloatingChatBot |
 | `{{LAMBDA_SERVICE}}` | e.g. `hkev-doc-rag-api` |
 | `{{SESSION_API_BASE}}` | filled **after** `serverless deploy` |
+| `{{JWT_ISSUER}}` | docs-site issuer, no trailing slash (MCP step only) | `https://doc.example.com` |
+| `{{JWT_AUDIENCE}}` | `aud` the docs site signs and the MCP runtime allows | `docs` |
 
 Env **names** stay as written (`POSTGRES_HOST`, `DEEPSEEK_API_KEY`, …).
 
@@ -353,13 +368,393 @@ truth. Renaming `runtimes[].name` or project `name` creates a **new**
 stack (`AgentCore-{{PROJECT_NAME}}-default`); it does not update the old
 one. Put the invoke URL in `VITE_AGENT_ENDPOINT`.
 
-### 9. Report
+### 9. MCP runtime with OIDC login (only when asked)
+
+Skip this whole step unless the user wants a remote MCP client (Claude Code,
+Cursor, anything that speaks MCP) to search the docs. The floating chat does
+not use it. It keeps calling the AG-UI runtime from step 8.
+
+A runtime has exactly one protocol, so this is a **second entry** in
+`runtimes`, not a flag on `{{AGENT_NAME}}`. Name it `{{AGENT_NAME}}Mcp`.
+Renaming either runtime later destroys the deployed one.
+
+#### The server
+
+Write `app/{{AGENT_NAME}}/mcp_main.py`. It imports the tools the AG-UI agent
+already has and runs them in order inside **one** tool. Do not register
+`rephrase_query`, `find_tags`, `search_articles`, and `rerank_chunks`
+separately: a remote client has no system prompt forcing that order, so it
+will skip or reorder them. Leave `main.py` and `status` alone — the chat UI
+shows those status lines.
+
+```python
+from mcp.server.fastmcp import FastMCP
+
+from tools.find_tags import find_tags
+from tools.rephrase_query import rephrase_query
+from tools.rerank_chunks import rerank_chunks
+from tools.search_articles import search_articles
+
+# AgentCore forwards MCP to 0.0.0.0:8000/mcp and supplies Mcp-Session-Id.
+mcp = FastMCP(host="0.0.0.0", stateless_http=True, port=8000)
+
+
+@mcp.tool()
+def search_docs(question: str) -> dict:
+    """Search the documentation and return cited passages.
+
+    Use this for any question about {{DOMAIN_DESCRIPTION}}. It rephrases the
+    question, picks tags, searches, then reranks. Call it once per question.
+    Each chunk carries title, summary, source_excerpt, and a finished markdown
+    link. Answer from those, and copy link verbatim when citing.
+    """
+    query = rephrase_query(question)
+    tags = find_tags(query)
+    found = search_articles(query, tags)
+    articles = found.get("articles", [])
+    ranked = rerank_chunks(query, articles) if articles else []
+    return {
+        "query": query,
+        "tags": tags,
+        "total_found": found.get("total_found", 0),
+        "chunks": ranked,
+    }
+
+
+if __name__ == "__main__":
+    mcp.run(transport="streamable-http")
+```
+
+The docstring is the only tool description the client shows its model. There
+is no keyword list and no trigger config.
+
+`FastMCP` is imported from `mcp.server.fastmcp`, which mcp 2.x removed.
+`strands-agents` and `bedrock-agentcore` require `mcp<2`, but the deployed
+resolver ignores a constraint that is only transitive. Pin it directly in
+`app/{{AGENT_NAME}}/pyproject.toml`:
+
+```toml
+"mcp>=1.23.0,<2",
+```
+
+Without the pin the runtime installs mcp 2, dies on import with
+`ModuleNotFoundError: No module named 'mcp.server.fastmcp'`, and the client reports
+`connection timed out after 30000ms` **after** login succeeded. The login
+working does not mean the runtime started. Read the runtime logs.
+
+#### The runtime entry
+
+Copy `runtimes[0]` to a second object. Same `codeLocation`, same `envVars`
+**names** (empty values, filled only in `.env.local`), same authorizer. Change
+`name`, `entrypoint`, and `protocol`.
+
+```json
+{
+  "name": "{{AGENT_NAME}}Mcp",
+  "build": "CodeZip",
+  "entrypoint": "mcp_main.py",
+  "codeLocation": "app/{{AGENT_NAME}}/",
+  "runtimeVersion": "PYTHON_3_14",
+  "networkMode": "PUBLIC",
+  "protocol": "MCP",
+  "authorizerType": "CUSTOM_JWT",
+  "authorizerConfiguration": {
+    "customJwtAuthorizer": {
+      "discoveryUrl": "{{JWT_ISSUER}}/.well-known/openid-configuration",
+      "allowedAudience": ["{{JWT_AUDIENCE}}"]
+    }
+  }
+}
+```
+
+This authorizer is **not** the Cognito one from step 4. Cognito
+`USER_PASSWORD_AUTH` tokens carry `client_id` and no `aud`, so the AG-UI
+runtime uses `allowedClients`. The MCP token is signed by the docs site and
+carries `aud`, so this runtime uses `allowedAudience`. The two runtimes can
+keep different authorizers. Deploying this entry does not publish the login
+page — that is the docs site, below, and it deploys on its own.
+
+`discoveryUrl` must end in `/.well-known/openid-configuration`. AgentCore
+fetches it, then `jwks_uri`, and checks the bearer signature. It never sees a
+password and never redirects a browser.
+
+#### The invocation URL
+
+`agentcore status --json` prints `invocationUrl` after deploy. Prefer that
+over building it. The shape, with `:` as `%3A` and `/` as `%2F`, is:
+
+```text
+https://bedrock-agentcore.{{AWS_REGION}}.amazonaws.com/runtimes/<url-encoded-arn>/invocations?qualifier=DEFAULT
+```
+
+Quote it in zsh. `?` is a glob, and an unquoted URL fails with
+`no matches found` before the command runs. If the client sends `Accept`, it
+must allow both `application/json` and `text/event-stream`. The URL is not
+specific to one client.
+
+#### What the client does
+
+A tokenless request gets `401` with one header:
+
+```text
+WWW-Authenticate: Bearer resource_metadata="<invocation-url>/.well-known/oauth-protected-resource?qualifier=DEFAULT"
+```
+
+AgentCore serves that protected-resource document and names `{{JWT_ISSUER}}`
+as the authorization server. The client then does all of this against the docs
+site, per the [MCP authorization spec (2025-06-18)](https://modelcontextprotocol.io/specification/2025-06-18/basic/authorization):
+
+1. `GET /.well-known/oauth-authorization-server`
+2. `POST /oauth/register` with its redirect URI
+3. Open `authorization_endpoint` in the browser, PKCE S256
+4. Get `?code=` back on its own redirect URI
+5. `POST /oauth/token` with the code and the verifier
+6. Retry with `Authorization: Bearer <access_token>`
+
+The client config holds the invocation URL only. No token, no client id, no
+secret. A `200` with `text/html` is a failure: the discovery path fell through
+to the SPA. The client reports `does not support dynamic client registration`
+and `content-type is not application/json`.
+
+#### The authorization server
+
+The docs site is already the issuer (`{{JWT_ISSUER}}`) and already publishes
+`/.well-known/openid-configuration` plus `/.well-known/jwks.json`. It is not
+an OAuth server until these routes exist. Add them in three files:
+`oauthServer.ts` (signing), the auth controller (HTTP), and the app router
+(where the browser goes). Mount every route **before** the SPA catch-all,
+or the catch-all returns `index.html` for them.
+
+The site runs as one Lambda, so the register call, the browser, and the token
+call can hit different containers. Do not store the client or the code in
+memory or in a table. Sign both with HMAC-SHA256 over `JWT_PRIVATE_KEY`. The
+token is `base64url(body).base64url(mac)`. A client id lasts 30 days, a code
+lasts 5 minutes, and a code carries everything the token endpoint checks.
+
+```ts
+const CODE_TTL_SECONDS = 5 * 60;
+const CLIENT_TTL_SECONDS = 30 * 24 * 60 * 60;
+
+type ClientClaims = { u: string[]; exp: number };
+type CodeClaims = {
+    cid: string;   // client id this code was issued to
+    r: string;     // the exact redirect URI
+    c: string;     // the PKCE S256 challenge
+    res?: string;  // RFC 8707 resource, when the client sent one
+    exp: number;
+    jti: string;   // spent once per warm container
+};
+```
+
+A `Set` of spent `jti`s blocks a replay on the same warm container. A second
+container still accepts the code until it expires. That window is the trade
+for having no shared store.
+
+**`GET /.well-known/oauth-authorization-server`** — `200`, RFC 8414:
+
+```json
+{
+  "issuer": "{{JWT_ISSUER}}",
+  "authorization_endpoint": "{{JWT_ISSUER}}/oauth/authorize",
+  "token_endpoint": "{{JWT_ISSUER}}/oauth/token",
+  "registration_endpoint": "{{JWT_ISSUER}}/oauth/register",
+  "jwks_uri": "{{JWT_ISSUER}}/.well-known/jwks.json",
+  "response_types_supported": ["code"],
+  "grant_types_supported": ["authorization_code"],
+  "code_challenge_methods_supported": ["S256"],
+  "token_endpoint_auth_methods_supported": ["none"],
+  "scopes_supported": ["mcp"]
+}
+```
+
+`none` means no client secret. PKCE replaces it. Also add the same three
+endpoints to the existing `/.well-known/openid-configuration`, so a client
+that starts from OIDC discovery still finds them. `jwks.json` must publish
+the public key with the same `kid` the signer writes. The private key stays
+in the Lambda.
+
+**`POST /oauth/register`** — body `{ "redirect_uris": ["http://127.0.0.1:19876/callback"] }`.
+Accept only `https`, or `http` on `localhost` / `127.0.0.1`. Sign `{ u, exp }`
+into the client id. `201`:
+
+```json
+{
+  "client_id": "<signed token>",
+  "redirect_uris": ["http://127.0.0.1:19876/callback"],
+  "client_id_issued_at": 1760000000,
+  "grant_types": ["authorization_code"],
+  "response_types": ["code"],
+  "token_endpoint_auth_method": "none"
+}
+```
+
+Anything else is `400` `{ "error": "invalid_client_metadata", "error_description": "redirect_uris must be a list of http(s) or localhost URLs." }`.
+
+**`GET /oauth/authorize`** — validate, then redirect. Do not render a page
+here. Reject unless `response_type` is `code`, the client id verifies and is
+unexpired, `redirect_uri` is one of the URIs inside that client id, and
+`code_challenge_method` is `S256`. A failure is `400`
+`{ "error": "invalid_request", "error_description": "..." }` with one of:
+`response_type must be code.`, `Unknown client_id. Register the client first.`,
+`redirect_uri is not registered for this client.`, `PKCE S256 is required.`
+
+On success the **router** redirects, forwarding the whole query string. The
+controller only validates and calls `next()`.
+
+```ts
+app.get("/oauth/authorize", AuthController.authorize, (req, res) => {
+    const query = new URLSearchParams(req.query as Record<string, string>);
+    res.redirect(302, `/mcp-login?${query.toString()}`);
+});
+```
+
+```text
+302 Location: /mcp-login?response_type=code&client_id=<signed token>&redirect_uri=...&code_challenge=<s256>&code_challenge_method=S256&state=<state>&resource=<invocation url>
+```
+
+Keep every parameter. The login page sends this query back unchanged, and
+dropping `response_type` makes the completion step fail its own check. The
+client never learns `/mcp-login`. It only knows `authorization_endpoint`, so
+changing pages later is a change to this one redirect.
+
+**`GET /oauth/complete`** — the login page lands here. Read the `access_token`
+cookie and verify it; missing or rejected is `401` `{ "error": "login_required" }`.
+Run the same validation as authorize (`400` `invalid_request` on failure),
+then sign the code and redirect to the client's redirect URI:
+
+```text
+302 Location: http://127.0.0.1:19876/callback?code=<signed token>&state=<state>
+```
+
+The code claims are `{ cid, r, c, res, exp, jti }`. `jti` is
+`randomBytes(16)` base64url. Nothing is stored.
+
+**`POST /oauth/token`** — form body, so mount `express.urlencoded({ extended: false })`
+or it arrives empty. Accept JSON too. Fields: `grant_type=authorization_code`,
+`code`, `redirect_uri`, `client_id`, `code_verifier`, optional `resource`.
+
+Check in this order, and mark the `jti` spent **before** comparing the
+verifier, so a wrong verifier still consumes the code:
+
+1. `grant_type` must be `authorization_code` → `unsupported_grant_type`
+2. Signature valid and unexpired, and `jti` not spent → `invalid_grant`
+3. `client_id` and `redirect_uri` equal the claims → `invalid_grant`
+4. If both sides sent `resource`, they must match → `invalid_target`
+5. `base64url(sha256(code_verifier))` must equal the stored challenge,
+   compared in constant time → `invalid_grant`
+
+On success sign a fresh access token with the **same** function that sets the
+cookie, and return `200`:
+
+```json
+{ "access_token": "<RS256 JWT>", "token_type": "Bearer", "expires_in": 604800 }
+```
+
+The claims that matter: `algorithm` `RS256`, `keyid` equal to the published
+`kid`, `issuer` equal to `{{JWT_ISSUER}}` with no trailing slash, `audience`
+equal to `{{JWT_AUDIENCE}}`, `expiresIn` `7d`. The PEM is stored in the env
+with newlines as the two characters `\n`; put the real line breaks back
+before signing. A token whose `aud` is not `{{JWT_AUDIENCE}}` is rejected by
+the runtime even when the signature is valid.
+
+Also return that token from the existing login response, next to setting the
+httpOnly cookie. The docs frontend ignores the body. A client that cannot
+open a browser can take it from `POST /api/login` and send it as the bearer.
+Set the cookie `sameSite: "lax"`. The browser arrives from the client's
+localhost redirect and then navigates to `/oauth/complete`; `strict` would
+drop the cookie on that navigation.
+
+#### The login page
+
+Do not reuse the docs login page. The app shell sends every authenticated
+page to the docs route, so signing in there opens the documentation and the
+MCP client waits until it times out. Add a separate page and leave the
+original login untouched.
+
+The page posts to the same login endpoint. On success it does not navigate
+inside the app. It does a full navigation, which is what carries the cookie:
+
+```tsx
+const result = await login({ username, password });
+if ("error" in result) {
+    setError(err.data?.errorMessage ?? "Invalid username or password.");
+    return;
+}
+const oauth = new URLSearchParams(window.location.search);
+window.location.replace(`/oauth/complete?${oauth.toString()}`);
+```
+
+Three wiring details, each of which fails silently:
+
+- The router `lazy` must resolve to `{ Component }`. `lazy={() => import(...)}`
+  renders a **blank page** even though the URL and the query string are right.
+
+  ```tsx
+  <Route path="mcp-login" lazy={async () => {
+      const { default: Component } = await import("../pages/McpLoginPage/McpLoginPage.tsx");
+      return { Component };
+  }} />
+  ```
+
+- Put the route **outside** the authenticated shell, and do not build it as a
+  protected chunk. Those chunks return `401` when no cookie is present, and
+  this page is where the user is before they have one.
+- Exclude `/mcp-login` from the shell's "send everything to the docs" effect,
+  the same way a public share page is excluded, and skip the cookie check for
+  it. Otherwise the moment login succeeds the shell navigates to the docs and
+  `/oauth/complete` never runs.
+
+The frontend and the backend ship in one Lambda package, so a new page is not
+live until both are deployed. `agentcore deploy` does not deploy it.
+
+The dev server must proxy `/api`, `/oauth`, and `/.well-known` to the local
+backend, or the local login posts to the dev server and gets `index.html`.
+
+#### Connect a client
+
+```bash
+claude mcp add --scope user --transport http docs "<invocation-url>"
+```
+
+`--scope user` is required. The default `local` scope writes the server into
+the current project only, and `claude mcp get` then says it does not exist
+everywhere else. `claude mcp list` lists servers, not tools. Inside a
+session, `/mcp` shows the one tool, `search_docs`.
+
+Any other client uses the same URL and no token:
+
+```json
+{
+  "mcpServers": {
+    "docs": {
+      "type": "http",
+      "url": "https://bedrock-agentcore.{{AWS_REGION}}.amazonaws.com/runtimes/<url-encoded-arn>/invocations?qualifier=DEFAULT"
+    }
+  }
+}
+```
+
+A client with no OAuth support cannot follow the `401`. For that one, take
+the token from `POST /api/login` and send `Authorization: Bearer`.
+
+#### How the failures read
+
+| What you see | Where it actually is |
+|---|---|
+| Discovery URL returns HTML, `content-type is not application/json` | Route missing or registered after the SPA catch-all. Deploy the docs site. |
+| `no matches found` in the shell | Unquoted `?`. Quote the URL. |
+| Browser opens the docs after login | Authorize redirects to the docs login, or the shell does not treat `/mcp-login` as public. |
+| `/mcp-login` is blank, query string correct | `lazy` returns the module instead of `{ Component }`. |
+| `Got new credentials, but reconnecting failed: timed out after 30000ms` | Login worked. Runtime did not start. Check logs for `mcp.server.fastmcp`, pin `mcp<2`, redeploy with `agentcore deploy`. |
+
+### 10. Report
 
 - Layout detected and paths written
 - Env files created (names only) and which file the user must fill
 - Cognito pool/client ids (not secrets besides the agreed dummy password)
 - Session API URL and whether `create_table.py` / first inject ran
 - Next: fill `.env`, `create_table.py`, `sync_articles.py --backfill-hashes` (or `--apply` for a new corpus), `agentcore deploy`, attach S3 policy
+- If the MCP runtime was requested: its `invocationUrl`, and that the docs-site deploy (OAuth routes + `/mcp-login`) is separate from `agentcore deploy`
 
 ## Chat session list
 
@@ -754,6 +1149,32 @@ Do **not** hook sync into the docs-site GitHub Actions workflow unless that job 
     changed means `tsc` emitted under `dist/src/` and the handler still loads
     the stale `dist/server.js`. Keep `rootDir` at `src` with a single `include`
     directory. Delete `dist/` and redeploy.
+23. The MCP runtime is a second `runtimes` entry (`protocol: MCP`), not a
+    mode of the AG-UI one. It exposes one tool that runs rephrase → tags →
+    search → rerank internally. Do not register those four tools on it, and
+    do not collapse the AG-UI agent to match — its per-tool status lines are
+    what the chat renders.
+24. Pin `mcp>=1.23.0,<2` in the agent `pyproject.toml`. mcp 2 removed
+    `mcp.server.fastmcp`, the deployed resolver does not honor the transitive
+    `mcp<2` from strands, and the symptom is a 30s timeout **after** the
+    OAuth login succeeded.
+25. Client ids and authorization codes are HMAC-signed tokens, not rows.
+    The docs site is one Lambda, so the register, the browser, and the token
+    call land on different containers. A code is replayable on a second
+    container until its 5-minute expiry. Do not "fix" this with an in-memory
+    map.
+26. `/oauth/authorize` only validates. The redirect to `/mcp-login` lives in
+    the router, and it forwards the whole query string. The login page is
+    not the docs login page: the app shell sends every authenticated page to
+    the docs, so reuse opens the documentation instead of returning the code.
+27. The MCP route's `lazy` must return `{ Component }`. The bare module
+    renders a blank page. The route stays outside the authenticated shell,
+    out of the protected chunks, and excluded from the shell's redirect.
+28. OAuth routes go **before** the SPA catch-all, and the token route needs
+    `express.urlencoded`. Otherwise the discovery URL returns `index.html`
+    with HTTP 200 and the client refuses it. Quote the invocation URL in
+    zsh (`?` is a glob). `claude mcp add` needs `--scope user` or the server
+    exists only in the project it was added from.
 
 ## Template files
 
