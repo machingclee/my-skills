@@ -1,164 +1,122 @@
 ---
 name: spring--ftp
 description: >-
-  Wire the com.echarge:web.ftp library into a Spring Boot service so an embedded
-  Apache FtpServer streams uploads to S3 and serves listing and download from one
-  prefix. The server starts only when the service declares one FTPS3Configuration
-  bean. Use when adding FTP to a Spring Boot app, exposing a passive data port,
-  implementing preUpload, postUpload, preDownload, or postDownload, or changing
-  the web.ftp module.
+  Initialize a standalone embedded Apache FtpServer inside any Spring Boot
+  project. Copies the FTP classes into the application, streams STOR to S3 with
+  multipart upload, and serves LIST and RETR from one prefix. The server starts
+  only when the project has one FTPConfig bean. Use when adding FTP to a new or
+  existing Spring Boot app, opening the passive data port, hosting the server
+  on EC2, or implementing preUpload, postUpload, preDownload, or postDownload.
 ---
 
-# Spring FTP to S3
+# Standalone Spring FTP to S3
 
-`web.ftp` embeds Apache FtpServer 1.2.1 in a Spring Boot process and stores files in S3. The library does not read YAML and does not persist anything. A service turns FTP on by declaring one `@Component` that extends `com.echarge.ftp.FTPS3Configuration` and passes every setting into `super`.
+Drop an embedded Apache FtpServer into a Spring Boot application. Uploads go to S3. Listing and download read that same prefix back. The templates are the whole server. Do not depend on an internal `web.ftp` artifact, and do not look for one in another repository.
 
-Reference library: `/Users/chingcheonglee/Repos/hkev/java-modules/web.ftp`. Package `com.echarge.ftp`. S3 types stay in `com.echarge.ftp.s3`. Working consumer: `web.ecapi3` class `com.echarge.ecapi3.common.configurations.ftp.FTPConfig`, settings in `application-dev.yml` under `app.ftp`. `web.sales` does not use this module.
+The copied classes do not persist transfers. `FTPConfig` leaves `preUpload`, `postUpload`, `preDownload`, and `postDownload` empty. A project that later needs a record of a transfer writes that record inside those four methods. Do not add storage to `S3FileObject` or `S3OutputStream`.
 
 ## Mandatory Trigger
 
-Invoke this skill before writing FTP or `web.ftp` code when the user asks to:
+Invoke this skill before writing FTP code when the user asks to:
 
-- add an FTP server, FTP upload, or FTP download to a Spring Boot service
-- stream an FTP `STOR` into S3
-- list or download files that were uploaded through this FTP server
+- initialize, add, or scaffold an FTP server in a Spring Boot project
+- stream an FTP upload into S3
+- list or download files stored by this FTP server
 - implement `preUpload`, `postUpload`, `preDownload`, or `postDownload`
 - open the FTP data port, or host this FTP server on EC2
-- change `FTPS3Configuration`, `FtpServerLifecycle`, or the `web.ftp` pom
 
-## Add It to a Service
+## Inputs
 
-1. Depend on the library. Do not declare `ftpserver-core` or `ftplet-api` again. They arrive transitively from `web.ftp`. The service already has the AWS S3 SDK for its own use. Install the snapshot first with `mvn -q install -DskipTests` inside `web.ftp` when the local Maven repo is stale.
+Ask for anything that is still unknown. Do not invent a bucket, region, or password.
 
-```xml
-<dependency>
-    <groupId>com.echarge</groupId>
-    <artifactId>web.ftp</artifactId>
-    <version>0.0.1-SNAPSHOT</version>
-</dependency>
+| Input | Meaning | Default in the templates |
+|---|---|---|
+| `basePackage` | package of the `@SpringBootApplication` class | replace `{{basePackage}}` |
+| `bucket` | S3 bucket the server reads and writes | `example-ftp-dev` |
+| `region` | region of that bucket | `ap-east-1` |
+| `prefix` | FTP root, stored as an S3 key prefix | `/ftp` |
+| `port` | control port | `2121` |
+| `dataPort` | single passive data port | `2122` |
+| `username` | the one FTP account | `ftpuser` |
+| `password` | that account's password | environment variable `FTP_PASSWORD` |
+| `passiveAddress` | public address advertised by PASV | empty locally, Elastic IP or public DNS on EC2 |
+| `profile` | Spring profile that should open the ports | `dev` |
+
+## What to Copy
+
+Replace every `{{basePackage}}` with the application's base package, then copy the templates under the source root. `@SpringBootApplication` must scan that package. `FtpAutoConfiguration` is a `@Configuration` in the same tree, so component scan loads it. Do not add an auto-configuration imports file.
+
+```
+src/main/java/{{basePackage}}/ftp/
+  FTPS3Configuration.java      ← templates/FTPS3Configuration.java
+  FtpAutoConfiguration.java    ← templates/FtpAutoConfiguration.java
+  FtpServerLifecycle.java      ← templates/FtpServerLifecycle.java
+  StaticUserManager.java       ← templates/StaticUserManager.java
+  FTPConfig.java               ← templates/FTPConfig.java
+  s3/
+    S3FileSystemFactory.java   ← templates/s3/S3FileSystemFactory.java
+    S3FileSystemView.java      ← templates/s3/S3FileSystemView.java
+    S3FileObject.java          ← templates/s3/S3FileObject.java
+    S3OutputStream.java        ← templates/s3/S3OutputStream.java
+src/main/resources/application.yml   ← merge templates/application.snippet.yml
+pom.xml                              ← merge templates/pom.snippet.xml
 ```
 
-2. Put every setting in the service's own YAML. The library never binds `app.ftp`.
+Skip an S3 SDK dependency that the pom already declares. Keep `ftpserver-core` at `1.2.1`. The application needs a Spring Boot starter that brings SLF4J. These classes are part of the application, not a second Boot module.
 
-```yaml
-app:
-  ftp:
-    port: 2121
-    data-port: 2122
-    bucket: example-ftp-dev
-    region: ap-east-1
-    prefix: /ftp
-    username: ftpuser
-    password: ftppw
-```
+## YAML and the Bean
 
-3. Register one bean where component scan can see it. `extends` is required. `FTPS3Configuration` is an abstract class, not an interface. All four methods are abstract. Leave a method empty when that moment needs no side effect. Limit the bean with `@Profile` when only one environment should open the ports, and put `app.ftp` only in that profile's YAML.
+Merge `templates/application.snippet.yml` into the profile file that should run FTP. Replace `bucket`, `region`, and `prefix`. Set `FTP_PASSWORD` in the environment. On a laptop leave `passive-address` empty. On EC2 set `FTP_PASSIVE_ADDRESS` to the Elastic IP or public DNS name.
 
-```java
-@Component
-@Profile("dev")
-public class FTPConfig extends FTPS3Configuration {
+`FTPConfig` is the only class to edit after the copy:
 
-    public FTPConfig(
-            @Value("${app.ftp.port}") int port,
-            @Value("${app.ftp.data-port}") int dataPort,
-            @Value("${app.ftp.bucket}") String bucket,
-            @Value("${app.ftp.region}") String region,
-            @Value("${app.ftp.prefix}") String prefix,
-            @Value("${app.ftp.username}") String username,
-            @Value("${app.ftp.password}") String password) {
-        super(port, dataPort, bucket, region, prefix, username, password);
-    }
+- Change `@Profile("dev")` to the profile that contains `app.ftp`. Remove `@Profile` when every non-test run should listen.
+- `FtpAutoConfiguration` is already `@Profile("!test")`. A `@SpringBootTest` does not bind `2121` or `2122`.
+- Keep exactly one `FTPS3Configuration` bean. None means the factory returns null and no port opens. Two beans fail startup with `NoUniqueBeanDefinitionException`.
+- `extends FTPS3Configuration`. It is an abstract class. All four methods stay implemented, even when the body is empty.
 
-    @Override
-    public void preUpload(String fileName, String s3Key) throws IOException {
-    }
-
-    @Override
-    public void postUpload(String fileName, String s3Key, long totalBytes) throws IOException {
-    }
-
-    @Override
-    public void preDownload(String s3Key, long offset) throws IOException {
-    }
-
-    @Override
-    public void postDownload(String s3Key, long bytesRead) throws IOException {
-    }
-}
-```
-
-## When the Server Starts
-
-`FtpAutoConfiguration` is registered in `META-INF/spring/org.springframework.boot.autoconfigure.AutoConfiguration.imports`. It is `@Profile("!test")`, so a `@SpringBootTest` does not bind `2121` or `2122`.
-
-The `@Bean` method takes `ObjectProvider<FTPS3Configuration>` and calls `getIfAvailable()` while the context refreshes, after component scan has registered the service bean.
-
-- No bean: the factory returns null and no port opens.
-- One bean: `FtpServerLifecycle` starts on `ApplicationReadyEvent`.
-- Two beans: startup fails with `NoUniqueBeanDefinitionException`.
-
-`FtpServerLifecycle` builds its own `S3Client` from `getRegion()`, then stops the server and closes that client on `DisposableBean.destroy()`.
-
-## Constructor
-
-`super` takes seven arguments, in this order:
-
-- `port`, control connection. Login uses it. `2121` in the example.
-- `dataPort`, the single passive data port. `LIST`, `STOR`, and `RETR` use it. `2122` in the example. `FtpServerLifecycle` calls `DataConnectionConfigurationFactory.setPassivePorts` with that integer as a string. One transfer holds the port until it closes.
-- `bucket`, the S3 bucket.
-- `region`, the S3 region passed to `S3Client.builder().region`.
-- `root`, the FTP root as an S3 prefix. `/ftp`, `ftp`, and `ftp/` all become `ftp/`. An empty root lists the whole bucket. Do not leave it empty.
-- `username`, the single account.
-- `password`, that account's password. Null is stored as an empty password.
-
-The client home is `/`. That path lists and stores only `keyPrefix()`. `..` cannot climb above `/`.
+`super` takes eight arguments, in this order: `port`, `dataPort`, `bucket`, `region`, `root`, `username`, `password`, `passiveAddress`.
 
 ## Handlers
 
-Side effects belong only in the four methods on the service's subclass. Do not add storage, a log table, or a repository inside `web.ftp`. When a transfer needs a record, the service writes it from the handler that already runs at that moment.
-
-- `preUpload(fileName, s3Key)` runs before `createMultipartUpload`. Throwing here skips S3.
+- `preUpload(fileName, s3Key)` runs before `createMultipartUpload`. Throwing skips S3.
 - `postUpload(fileName, s3Key, totalBytes)` runs after `completeMultipartUpload` succeeds. A failed upload aborts the multipart upload and does not call `postUpload`.
 - `preDownload(s3Key, offset)` runs before `GetObject`.
 - `postDownload(s3Key, bytesRead)` runs once, when the download stream closes.
 
-`s3Key` is the real object key, including the prefix. `fileName` is the last path segment, not the key.
+`s3Key` includes the prefix. `fileName` is the last path segment.
 
 ## What the Client Sees
 
-S3 has no folders. `S3FileSystemView` owns the working directory, starting at `/`. `PWD`, `CWD`, and `LIST` all go through that view. Do not use `NativeFileSystemView`. Its working directory stays on the local disk, so overriding `getFile` never lists S3.
+`/` is the prefix from `root`. `/ftp`, `ftp`, and `ftp/` all become the key prefix `ftp/`. An empty root lists the whole bucket. Do not leave it empty. `..` cannot climb above `/`.
 
-- `LIST` and `MLSD` call `ListObjectsV2` with delimiter `/` on the prefix for the working directory. `/` lists `ftp/` only.
-- A finished upload is not stored at the path the client sent to `STOR`. `createOutputStream` chooses `ftp/<epochMillis>/<fileName>`. After success, `/` shows the timestamp as a directory and that directory shows the file.
-- `RETR` calls `GetObject` on the mapped key. A non-zero offset sends `range("bytes=" + offset + "-")`.
-- `doesExist()` stays true for a new name so `STOR` reaches `createOutputStream`.
-- Children from `ListObjectsV2` carry their directory flag, size, and mtime. Listing does not `HeadObject` each child.
-- `226` means the data connection finished. It does not mean any keys were returned.
+`S3FileSystemView` owns the working directory. Do not switch it to `NativeFileSystemView`. That view stays on the local disk, so `LIST` never asks S3.
 
-Nothing in the library builds an `ftp://` link, an HTTP route, or a presigned URL. A download is a client session: plain FTP to port `2121`, then `RETR` of `/<epochMillis>/<fileName>`. Current browsers do not speak FTP. FileZilla and curl do. In FileZilla set Encryption to "Only use plain FTP (insecure)".
+A finished `STOR` is not stored at the path the client sent. The object key is `<prefix><epochMillis>/<fileName>`. After success, `/` shows the timestamp as a directory and that directory shows the file. `LIST` uses `ListObjectsV2` with delimiter `/` on that prefix only. `RETR` uses `GetObject`. A non-zero offset sends a byte range.
+
+Nothing here builds an `ftp://` link, an HTTP route, or a presigned URL. Download is a plain-FTP session on port `2121`, then `RETR` of `/<epochMillis>/<fileName>`. Current browsers do not speak FTP. FileZilla and curl do. In FileZilla set Encryption to "Only use plain FTP (insecure)". List `/` before constructing a path, because the epoch is chosen when the upload starts.
 
 ```bash
-curl --ftp-pasv "ftp://ftpuser:ftppw@host:2121/<epochMillis>/<fileName>" -o "<fileName>"
+curl --ftp-pasv "ftp://ftpuser:${FTP_PASSWORD}@host:2121/<epochMillis>/<fileName>" -o "<fileName>"
 ```
-
-The epoch is chosen when the upload starts. The original file name is not enough to rebuild the path. List `/` first.
 
 ## Ports and EC2
 
-`2121` accepts `USER` and `PASS` only. `LIST`, `STOR`, and `RETR` open a second TCP connection on `dataPort`. A security group that allows only `2121` lets the client log in and then fail the transfer. Open both ports, and only from the client address that should be allowed to connect.
+`2121` is login. `2122` is the one passive port for `LIST`, `STOR`, and `RETR`. One transfer holds `2122` until it closes. A security group that allows only `2121` lets the client log in and then fail the transfer. Open both ports, and only from the client address that should connect.
 
-The listener does not set `passiveExternalAddress`. On EC2 the passive reply therefore names the instance's private address, which a client on the internet cannot route. Hosting this server for a remote client requires setting that address to the Elastic IP or public DNS on the same `DataConnectionConfigurationFactory`, and opening `2121` and the data port in the security group. Do not add TLS unless the user asks. There is no `SslConfiguration`. `AUTH TLS` returns `431 Service is unavailable`. An HTTP reverse proxy cannot terminate explicit FTPS, because the client speaks cleartext `AUTH TLS` first and then opens a second data connection.
+`FtpServerLifecycle` calls `setPassiveExternalAddress` when `passive-address` is non-blank. Without that value on EC2, the passive reply names the instance's private address and the client cannot route to it.
+
+There is no TLS. `AUTH TLS` returns `431 Service is unavailable`. Do not add `SslConfiguration` unless the user asks. An HTTP reverse proxy cannot terminate explicit FTPS.
 
 ## Login and Reply Codes
 
-`WritePermission` allows `STOR`. It does not authorize login. `BaseUser` also gets `ConcurrentLoginPermission(0, 0)`. For that permission, `0` means unlimited. Without it, `USER` returns `421 Maximum login limit has been reached` even when no session is open. Restart after changing authorities. The running user is the one built at startup.
+`WritePermission` allows `STOR`. It does not authorize login. The user also receives `ConcurrentLoginPermission(0, 0)`. For that permission, `0` means unlimited. Without it, `USER` returns `421 Maximum login limit has been reached` even when no session is open.
 
-`STOR` sends `150` before `createOutputStream`. An `IOException` from the stream becomes `551`. A `SocketException` becomes `426`. Any other exception becomes a generic `550 Requested action not taken`, logged as `RequestHandler.service()`.
+`STOR` sends `150` before `createOutputStream`. An `IOException` from the stream becomes `551`. A `SocketException` becomes `426`. Any other exception becomes a generic `550 Requested action not taken`, logged as `RequestHandler.service()`. `226` means the data connection finished. It does not mean S3 returned any keys.
 
 ## IAM
 
-The EC2 role needs these actions on the configured bucket and prefix. `s3:PutObject` does not include listing or download.
+The instance role needs these actions on the bucket and prefix. `s3:PutObject` does not include listing or download.
 
 - `s3:ListBucket` on the bucket, optionally conditioned to the prefix
 - `s3:GetObject`
@@ -168,10 +126,8 @@ The EC2 role needs these actions on the configured bucket and prefix. `s3:PutObj
 - `s3:CompleteMultipartUpload`
 - `s3:AbortMultipartUpload`
 
-## Library Rules
+Credentials come from the default AWS provider chain. Do not put access keys in YAML.
 
-`web.ftp` is a library, not a Boot application. Its pom imports `spring-boot-dependencies` `4.0.0` as a BOM and does not use `spring-boot-starter-parent`. It does not apply `spring-boot-maven-plugin`. `spring-boot-autoconfigure` stays optional. `ftpserver-core` `1.2.1` and `software.amazon.awssdk:s3` `2.29.0` stay non-optional so consumers receive them transitively.
+## After the Copy
 
-IntelliJ treats a module whose pom uses `spring-boot-starter-parent` as a Boot application and does not put that module's dependencies on the runtime classpath of `web.sales` or `web.ecapi3`. That failure looks like `NoClassDefFoundError: org/apache/ftpserver/ftplet/User` even when `mvn dependency:tree` already shows `ftplet-api`. Do not "fix" it by adding `ftpserver-core` to the consumer. Keep the library pom as a plain jar that imports the BOM.
-
-Do not add a second `FTPS3Configuration` bean. Do not make the handlers optional. Do not put a default implementation in the library. Do not point listing at prefix `""`.
+Run the application's compile. Start the profile that owns `app.ftp` with `FTP_PASSWORD` set. The log line `FTP server started on port 2121 with data port 2122` means both listeners are up. Connect with plain FTP and confirm `LIST` shows only the configured prefix.

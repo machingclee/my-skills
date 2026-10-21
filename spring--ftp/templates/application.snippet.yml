@@ -1,0 +1,10 @@
+app:
+  ftp:
+    port: 2121
+    data-port: 2122
+    passive-address: ${FTP_PASSIVE_ADDRESS:}
+    bucket: example-ftp-dev
+    region: ap-east-1
+    prefix: /ftp
+    username: ftpuser
+    password: ${FTP_PASSWORD}
