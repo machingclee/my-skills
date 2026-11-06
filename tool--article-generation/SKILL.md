@@ -22,10 +22,12 @@ This skill must be invoked via the Skill tool whenever the user's request matche
 If any of these conditions are met, call `Skill("article-generation-style")` before writing any content. The skill contains formatting rules, file location conventions, and frontmatter requirements that must be applied.
 
 ## Rules for Generating or Rewriting
+
 - Titles should not start from present continuous tense, "Debugging ..." should be "Debug ...".
 - Do not check nearby articles for style reference; apply the rules below directly.
 - Use "we" and "our" instead of "you" and "your".
-- Avoid bold text `** **`; use only when truly necessary. The one expected exception is the starting title of a `>>` titled block, described below.
+- Avoid bold text `** **`; use only when truly necessary. The expected exceptions are the starting title of a `>>` titled block, described below, and the proof label `***Proof.***`.
+- A `<proof>` block starts its content with `***Proof.***`. Put that label at the beginning of the first paragraph, with two spaces before the sentence that follows. When the proof opens with a `>>` block, put `***Proof.***` in its own paragraph above the first block. In a Traditional Chinese article the label is `***證明.***`.
 - Do not remove any Chinese comments in code blocks.
 - All coding related syntax must be wrapped in backticks `` ` `` — class names, annotations, method names, keywords, field names, access level constants, and code expressions. This applies to body text and section headings alike.
 - Section headings must not start with numbering (`1.`, `2.`, `3.`, etc.). Use plain text titles instead.
@@ -44,21 +46,21 @@ If any of these conditions are met, call `Skill("article-generation-style")` bef
 - When each item in a set deserves a short starting title, use a `>>` titled block instead of a plain bullet list. Each item is its own block. A blank line is required between blocks, including when a block is only one line. Never place two `>>` blocks back to back. Every line of a block starts with `>> `:
 
   ```markdown
-  >> **The starting title.**  The first line of that item.
-  >> The content continues on the next line.
+  > > **The starting title.** The first line of that item.
+  > > The content continues on the next line.
 
-  >> **The next starting title.**  Its content.
-  >> The content continues.
+  > > **The next starting title.** Its content.
+  > > The content continues.
   ```
 
   A one-line list still keeps the blank line. This is the shape to copy, not a run of `>>` lines with nothing between them:
 
   ```markdown
-  >> **`2`, `CALL`.**  The third element is the action name, and the fourth is the payload object.
+  > > **`2`, `CALL`.** The third element is the action name, and the fourth is the payload object.
 
-  >> **`3`, `CALLRESULT`.**  The third element is the result object. The id already says which call this answers.
+  > > **`3`, `CALLRESULT`.** The third element is the result object. The id already says which call this answers.
 
-  >> **`4`, `CALLERROR`.**  The third element is an error code, the fourth is a description, and the fifth is an error details object.
+  > > **`4`, `CALLERROR`.** The third element is an error code, the fourth is a description, and the fifth is an error details object.
   ```
 
   - The starting title is bold, and its period sits inside the bold, as in `**Title.**`.
@@ -69,6 +71,7 @@ If any of these conditions are met, call `Skill("article-generation-style")` bef
   - A blank line inside a single block is written as a bare `>>` with nothing after it.
   - The block ends when the lines stop starting with `>>`. There is no closing marker, and a line of `>>>` is never used.
   - This is the one place bold is expected, so the `** **` restriction above does not apply to a starting title.
+
 - Group closely related topics under a parent section (`###`) with child subsections (`####`). Avoid long flat lists of same-level headings. Use `#####` for deeper nesting when a subsection benefits from further breakdown.
 - When an article covers many topics, cluster them into a multi-level hierarchy that uses at least three heading levels (`###`, `####`, and `#####`). Prefer grouping related items under broader sections rather than listing many same-level headings side by side. Example shape: `### Domain Area` → `#### Capability` → `##### Concrete Step Or Detail`. Apply this whenever the outline would otherwise become a long flat list of peer sections.
 - Bound the depth you add. Nesting is for grouping distinct topics, not for cutting one explanation into pieces. Before creating a deeper level, check that the level above it already holds two or more distinct topics:
@@ -106,9 +109,6 @@ If any of these conditions are met, call `Skill("article-generation-style")` bef
     img {
       max-width: 660px !important;
     }
-    table td:first-child, table th:first-child {
-      min-width: 160px;
-    }
   </style>
   ```
 
@@ -121,7 +121,6 @@ If any of these conditions are met, call `Skill("article-generation-style")` bef
 - Whenever the article refers to another section, whether that section is in the same article or in another one, write `[#some-title]` and nothing else. The site fills in the section number and heading text and links to it, so never type the title yourself and never write a `[Some Title](#some-title)` link. Use `[$some-title]` when the number and the title are wanted without the angle brackets. The id must match a `{#...}` anchor in the same article, or one in the site-wide section map; an id that resolves nowhere is left on the page as literal text, so a typo is visible to the reader. Never put a literal `[#some-title]` inside a fenced code block, because the renderer expands the syntax before it parses the markdown and would rewrite the sample text.
 
 - When creating a new article, write it in the blog, not in the project the conversation is working in. The directory is `/Users/chingcheonglee/Repos/Javascript/machingclee.github.io.source/app/src/mds/articles/tech/`. Prefix the filename with the next sequential number (the highest existing `NNN-*.md` plus one) and set `id` to `blog0NNN`. Write the English article only. Do not also write a copy under the current project's `markdowns/` or `docs/` unless the user explicitly asks for one.
-
 
 ## Structure of the article
 
