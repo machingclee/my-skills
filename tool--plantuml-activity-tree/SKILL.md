@@ -56,7 +56,7 @@ If entry point is missing, pick the most likely public entry and state the assum
 
 1. Draw an **activity tree** (see Default shape). Switch away from it only for the exceptions in the selection table.
 2. Emit **copy-pasteable PlantUML**: `@startuml` … `@enduml` in a single fenced block labeled `plantuml`.
-3. **Every diagram node** that represents a code step must show **`ClassName.methodName`** (simple class name, no package). Put the human-readable action on the same node (second line or after `: `).
+3. **Every diagram node** that represents a code step must show **`ClassName.methodName`** (simple class name, no package). Put a Creole rule `----` on the next line, then the human-readable action. The rule is the separator between the method and what the method does.
 4. Collapse helper chains into **one node** still named by the **outer or dominant** `ClassName.methodName`; list callees in a `note` attached to that node.
 5. Show only branches that **change outcome** (errors, retries, early return). Optional footnote list for other errors.
 6. After the diagram: **smells** (3–6 bullets): hidden side effects, unclear ownership, risky concurrency.
@@ -72,10 +72,10 @@ This is the object to draw. Layout is top to bottom, like a decision tree:
 
 1. `start` at the top.
 2. The continuing path (usually **yes** / the happy path) runs **down** the trunk.
-3. Each outcome-changing `if` is a **diamond**. Label the exits **`(yes)`** / **`(no)`** or **`(true)`** / **`(false)`**. One pair per diagram.
-4. The side branch is the early exit, the join, or the failure. Give it its own action box. End it with `stop` when it does not rejoin.
+3. Each outcome-changing `if` renders as a **hexagon**. The question sits inside it. Label the exits **`(yes)`** / **`(no)`** or **`(true)`** / **`(false)`**. One pair per diagram.
+4. Close that `if` with `endif` before the next question. PlantUML draws an unlabeled **diamond** there: a **merge node**, several arrows in and one arrow out. It is not a decision. The next `if` hangs under it as the next hexagon. The side branch is the early exit or the failure. Give it its own action box. End it with `stop` when it does not rejoin.
 5. `stop` at the bottom of each path that returns or throws.
-6. Put **`ClassName.methodName`** on line 1 of every action box, and the action on the next lines. A call into another layer is still an action box on this tree, not a new participant.
+6. Put **`ClassName.methodName`** on line 1 of every action box, then a line that is only `----`, then the action. The `----` line and every action line must start at **column 0**. A leading space on `----` prints the dashes as text. A leading space on an action line indents that text inside the box, so it no longer lines up with the method name. Inside a nested `if`, indent only the `:method` line. A call into another layer is still an action box on this tree, not a new participant.
 7. Collapse a helper chain into the outer action plus a `note`. Never replace this tree with a sequence diagram to show callees.
 
 Transaction boundaries, async, and post-commit belong **in the action text or a note** on this tree (`REQUIRES_NEW commit before the business TX`, `post-commit after commit`).
@@ -101,8 +101,10 @@ Pick **one diagram type** per diagram. Use only the node kinds listed for that t
 | Node | PlantUML | When to use | Label / content |
 |------|----------|-------------|-----------------|
 | **Start / stop** | `start`, `stop` | Single entry and exit for this story | No method name |
-| **Action** | `:…;` | Default for every code step | Line 1: **`ClassName.methodName`**; line 2: short action. Mark async/DB/scheduler in text if relevant |
-| **Decision** | `if (…) then (…) … else (…) … endif` | Any branch that changes outcome | Diamond: predicate (e.g. `forceOcpp?`); optional `ClassName.methodName:` prefix. Branches: **`(true)`/`(false)`** or **`(yes)`/`(no)`** — one pair per diagram |
+| **Action** | `:…;` | Default for every code step | Line 1: **`ClassName.methodName`**. Line 2: `----` at column 0. Line 3 onward: the action, also at column 0. Any leading space is drawn inside the box |
+| **Decision** | `if (…) then (…) … else (…) … endif` | Any branch that changes outcome | Renders as a **hexagon**. Predicate inside (e.g. `forceOcpp?`). Branches: **`(true)`/`(false)`** or **`(yes)`/`(no)`** — one pair per diagram |
+| **Merge** | `endif` before the next `if` | Previous yes/no arms join, then another question | Unlabeled **diamond**. Many arrows in, one arrow down into the next hexagon. Do not put a question on it |
+| **Repeat** | `repeat` … `repeat while (…?) is (yes)` then `->no;` | A later step re-enters this tree (policy `send`, retry) | `repeat` starts at the re-entry point. The **while** hexagon is the loop check. Put it directly under the step that decides to loop. Every arm that must not loop ends with `stop` on that arm (draw the exit steps there first). Do not use `break` |
 | **Switch** | `switch` / `case` / `endswitch` | Enum / multi-way switch, few cases | Case name as branch label; each arm → action node(s) |
 | **Swimlane** | `\|Lane name\|` | Cross-cutting roles (HTTP, DB, Scheduler) | Lane name = role/layer, not a class |
 | **Partition** | `partition Name { … }` | Phases (e.g. command transaction) | Phase label only |
@@ -111,6 +113,10 @@ Pick **one diagram type** per diagram. Use only the node kinds listed for that t
 | **Collapsed chain** | One **action** + **note** | 3+ trivial helper calls | Action = **`OuterClass.outerMethod`**; note lists `→ Callee.method()` |
 
 After `endif`, branches may merge into a shared action or separate `stop` nodes (early return / throw).
+
+Do **not** write a bare `backward:` line. PlantUML rejects it with `Cannot find repeat` unless that line sits inside `repeat` … `repeat while`.
+
+Do **not** use `break` to leave a `repeat`. PlantUML draws that arrow sideways to the left edge of the diagram, detached from the node after the repeat. Put the exit steps on the non-loop arm and end that arm with `stop`. Only the re-entry arm falls through to `repeat while`.
 
 ### Sequence (forbidden unless the user explicitly asked)
 
@@ -154,7 +160,7 @@ Logging, getters/setters, mappers, generated code, every method in a large class
 
 | Diagram | Rule |
 |---------|------|
-| **Activity** | Each `:…;` step starts with **`ClassName.methodName`** then `\n` and a short action. Example: `:ChargePointManager.startLoggerMeterValueScheduler\nCollect pending meter values;` |
+| **Activity** | Each `:…;` step is **`ClassName.methodName`**, then a `----` rule, then the action. Example: `:ChargePointManager.startLoggerMeterValueScheduler\n----\nCollect pending meter values;` |
 | **Sequence** | `participant` = class (or layer alias with `\nClassName` in stereotype/note). Each arrow label is **`methodName(...)`** or **`ClassName.methodName`**. Self-calls must show the method. |
 | **Collapsed chain** | Node label = **`OuterClass.outerMethod`**; `note right`: `→ Helper.a()`, `→ Helper.b()` |
 | **No method** | Only for non-code nodes (e.g. `:User clicks Save;`, `:OCPP MeterValues received;`). State explicitly when the step is not in project code. |
@@ -172,7 +178,7 @@ Use PlantUML **`if` / `then` / `else` / `endif`** so the diagram shows a **diamo
 
 **Rules:**
 
-1. **Diamond text** = the decision as readable code: predicate or flag name, often with `?` (e.g. `(forceOcpp?)`, `(reservation valid?)`). Optionally prefix with **`ClassName.methodName:`** in the condition if the `if` lives in that method.
+1. **Hexagon text** = the decision as readable code: predicate or flag name, often with `?` (e.g. `(forceOcpp?)`, `(reservation valid?)`). Optionally prefix with **`ClassName.methodName:`** in the condition if the `if` lives in that method. The diamond above that hexagon is only the merge of the previous `endif`. Leave it unlabeled.
 2. **Branch labels** on `then` / `else` — pick one pair and stay consistent in the diagram:
    - Boolean: **`(true)`** / **`(false)`** (best for flags and `boolean` expressions)
    - General: **`(yes)`** / **`(no)`** (best for “can proceed?”, presence checks)
@@ -180,16 +186,19 @@ Use PlantUML **`if` / `then` / `else` / `endif`** so the diagram shows a **diamo
 4. **Early return / throw** on one branch: label that branch, one node for the exit, rejoin or `stop` — do not skip the diamond.
 5. **Nested `if`**: nest `if` blocks; avoid more than **2 levels** in one diagram — collapse deeper logic into a `note` on the inner diamond.
 6. **Outcome-changing only** — same as branch budget; trivial guards can merge into one diamond with a short `else (false): return` arm.
+7. **Do not repeat the same question.** If the next `if` uses the same predicate (`top-level send?` twice in a row), delete the second hexagon. Put every later step on the matching arm of the first `if`. The yes arm runs those steps in order. The no arm states what it does not do, then `stop` or merges. A later exit that tests the same flag for a **different** reason (success runs the callback, failure also marks events failed) keeps its own hexagon.
 
 **Syntax template:**
 
 ```plantuml
 if (ClassName.methodName: forceOcpp?) then (true)
   :ClassName.sendOcppCommand
-  ...;
+----
+...;
 else (false)
   :ClassName.useLocalFallback
-  ...;
+----
+...;
 endif
 ```
 
@@ -231,7 +240,7 @@ Goal: digest this path into a readable flow (not full API docs).
 
 Follow skill tool--plantuml-activity-tree:
 - Outline first, then a top-down PlantUML activity tree. Never a sequence diagram unless this prompt says "sequence diagram".
-- Every step/node: ClassName.methodName + short action.
+- Every step/node: ClassName.methodName, then ----, then a short action.
 - if/else in code → diamond with yes/no (or true/false). Happy path continues down.
 - Max 15 steps on happy path; collapse helpers into one node (keep method anchor + note for callees).
 - Swimlanes: [layers].
@@ -249,6 +258,9 @@ Follow skill tool--plantuml-activity-tree:
 | Hide decision inside one box ("maybe OCPP") | **if (predicate?) then (true) … else (false) … endif** |
 | Nested `parallelStream` as many nodes | One labeled node unless race-relevant |
 | Any sequence diagram the user did not explicitly request | **Activity tree**; callee is `ClassName.methodName` on an action box |
+| Bare `backward:` to draw a loop | `repeat` / `repeat while`. `backward` only inside that repeat |
+| `break` inside `repeat` | `stop` at the end of the non-loop arm. `break` draws a detached arrow to the left edge |
+| The same `if` twice in a row | One hexagon. Later steps sit on that hexagon's yes and no arms |
 | Huge sequence with 20 participants | One activity node plus a note, unless they explicitly asked for a sequence |
 | Diagram whole scheduler | One tick or one entity through the pipeline |
 
