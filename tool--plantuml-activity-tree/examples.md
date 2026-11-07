@@ -1,4 +1,4 @@
-# Examples — tool--plantuml-flow-digest
+# Examples — tool--plantuml-activity-tree
 
 ## Example A — Scheduler / batch job
 
@@ -64,25 +64,52 @@ stop
 
 Use **`(yes)` / `(no)`** instead when the condition is not a boolean literal style check.
 
-## Example B — Command bus (web.v2 style)
+## Example B — Command bus (default activity tree)
 
 **User says:** "Diagram CreateCarModel from controller to DB."
 
 **Entry:** `commandBus.send(CreateCarModelCommand)`.
 
-**Sequence participants:** `CarModelController`, `CommandBus`, `CreateCarModelCommandHandler`, `CarModelRepository`, `EventQueue`, listeners.
+Draw a **top-down activity tree**, not a sequence. Each box is `ClassName.methodName`. Diamonds are the outcome branches (handler missing, nested vs new transaction, handler threw). A repository save is an action on the trunk, not a participant.
 
-**Arrow labels (examples):** `CarModelController.create()` → `CommandBus.send()` → `CreateCarModelCommandHandler.handle()` → `CarModelRepository.save()` → `EventQueue.add(CarModelCreatedEvent)`.
-
-**Notes in diagram:** save inside transaction; listeners run before commit unless documented otherwise.
+```plantuml
+@startuml
+start
+:CarModelController.create
+commandBus.send(CreateCarModelCommand);
+if (handler registered?) then (yes)
+  :CustomCommandAuditor.logCommandInTransaction
+  REQUIRES_NEW commit
+  success=false
+  before the business TX;
+  :CreateCarModelCommandHandler.handle
+  New transactionTemplate;
+  :CarModelRepository.save
+  Inside that transaction;
+  if (handler threw?) then (yes)
+    :CustomCommandAuditor.logFailure
+    Audit row already committed;
+    stop
+  else (no)
+    :CustomCommandAuditor.logSuccess
+    Stamp success in REQUIRES_NEW;
+  endif
+  stop
+else (no)
+  :AbstractCommandBus.send
+  Throw IllegalArgumentException;
+  stop
+endif
+@enduml
+```
 
 ## Example C — User prompt (minimal)
 
 ```text
 Entry: POST /api/admin/car-models → through command handler.
 
-tool--plantuml-flow-digest: sequence diagram, max 12 messages.
-Every message labeled ClassName.methodName (or method on participant).
-Swimlanes not needed; partition "Command transaction".
-Exclude validation boilerplate.
+tool--plantuml-activity-tree: top-down activity tree, max 12 nodes.
+Every action: ClassName.methodName plus a short action.
+Outcome branches as yes/no diamonds. Happy path continues down.
+Never a sequence diagram unless this prompt says "sequence diagram". Exclude validation boilerplate.
 ```

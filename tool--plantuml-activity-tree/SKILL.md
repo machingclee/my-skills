@@ -1,17 +1,21 @@
 ---
-name: tool--plantuml-flow-digest
+name: tool--plantuml-activity-tree
 description: >-
-  Digests spaghetti or hard-to-follow code into readable PlantUML diagrams
-  (activity, sequence, or component), with each step anchored as
-  ClassName.methodName. Use when the user asks to understand,
-  map, visualize, or document control flow; wants a flowchart of a class or
-  feature; mentions PlantUML, sequence/activity diagrams, or "digest" code;
-  or needs an entry-point-based walkthrough before refactoring.
+  Digests spaghetti or hard-to-follow code into a top-down PlantUML activity
+  tree (start, action boxes, yes/no diamonds, stop), with each step anchored
+  as ClassName.methodName. Never draw a sequence diagram unless the user
+  explicitly asks for one. Use when the user
+  asks to understand, map, visualize, or document control flow; wants a
+  flowchart of a class or feature; mentions PlantUML, sequence/activity
+  diagrams, or "digest" code; or needs an entry-point-based walkthrough
+  before refactoring.
 ---
 
-# PlantUML flow digest
+# PlantUML activity tree
 
 Turn messy code into **one story at one abstraction level**. The deliverable is understanding, not exhaustive API documentation.
+
+**Always draw a top-down activity tree** (`start` → action boxes → `if` diamonds with `(yes)`/`(no)` → `stop`). This includes HTTP handlers, command buses, events, schedulers, and database calls. **Never draw a sequence diagram unless the user explicitly asks for a sequence diagram.** "Who calls whom", layer crossing, and message order are not that request — put the callee on an action box.
 
 ## When to apply
 
@@ -50,7 +54,7 @@ If entry point is missing, pick the most likely public entry and state the assum
 
 ### Pass 2 — Diagram
 
-1. Choose diagram type (see table below).
+1. Draw an **activity tree** (see Default shape). Switch away from it only for the exceptions in the selection table.
 2. Emit **copy-pasteable PlantUML**: `@startuml` … `@enduml` in a single fenced block labeled `plantuml`.
 3. **Every diagram node** that represents a code step must show **`ClassName.methodName`** (simple class name, no package). Put the human-readable action on the same node (second line or after `: `).
 4. Collapse helper chains into **one node** still named by the **outer or dominant** `ClassName.methodName`; list callees in a `note` attached to that node.
@@ -60,16 +64,31 @@ If entry point is missing, pick the most likely public entry and state the assum
 ### Pass 3 — Optional (only if user wants refactor or compare)
 
 - Second diagram with **dashed** boxes for suggested boundaries/modules.
-- Or same path as **sequence** if pass 2 was **activity** (layer crossing).
+- A **sequence** diagram only when the user explicitly asked for a sequence diagram in this request. Otherwise do not draw one.
+
+## Default shape — activity tree
+
+This is the object to draw. Layout is top to bottom, like a decision tree:
+
+1. `start` at the top.
+2. The continuing path (usually **yes** / the happy path) runs **down** the trunk.
+3. Each outcome-changing `if` is a **diamond**. Label the exits **`(yes)`** / **`(no)`** or **`(true)`** / **`(false)`**. One pair per diagram.
+4. The side branch is the early exit, the join, or the failure. Give it its own action box. End it with `stop` when it does not rejoin.
+5. `stop` at the bottom of each path that returns or throws.
+6. Put **`ClassName.methodName`** on line 1 of every action box, and the action on the next lines. A call into another layer is still an action box on this tree, not a new participant.
+7. Collapse a helper chain into the outer action plus a `note`. Never replace this tree with a sequence diagram to show callees.
+
+Transaction boundaries, async, and post-commit belong **in the action text or a note** on this tree (`REQUIRES_NEW commit before the business TX`, `post-commit after commit`).
 
 ## Diagram type selection
 
-| Code shape | PlantUML | Prompt-style constraints |
-|------------|----------|---------------------------|
-| Long conditionals, loops, early returns | **Activity** | Use **`if` diamonds** with labeled branches (see below); happy path obvious at a glance |
-| Layered calls (HTTP → domain → DB) | **Sequence** | Group `participant` by layer; one scenario |
-| Module dependencies, cycles | **Component** or package diagram | Class/module names only — no `methodName` on nodes |
-| Command bus + events + listeners | **Sequence** or activity with `partition` | Mark pre-commit vs post-commit; `add` vs `addTransactional` if present |
+| Code shape | PlantUML | When |
+|------------|----------|------|
+| Control flow of one entry (conditionals, early returns, HTTP → domain → DB, command bus, events, listeners, schedulers) | **Activity tree** | **Default.** Always, unless a row below applies |
+| User's message explicitly asks for a **sequence diagram** | **Sequence** | The only case. One scenario. Do not infer this from the code shape |
+| Module dependencies, cycles, "what depends on what" | **Component** or package | Structure only — no `methodName` on nodes. Still not a sequence diagram |
+
+If the user did not say "sequence", draw the activity tree. Layered calls, a command bus, events, and "show the call order" stay on that tree.
 
 Use standard PlantUML syntax only. Do not use C4-PlantUML unless the user asks.
 
@@ -93,7 +112,9 @@ Pick **one diagram type** per diagram. Use only the node kinds listed for that t
 
 After `endif`, branches may merge into a shared action or separate `stop` nodes (early return / throw).
 
-### Sequence
+### Sequence (forbidden unless the user explicitly asked)
+
+Do not use this section on a normal digest. Open it only after the user has explicitly requested a sequence diagram.
 
 | Node | PlantUML | When to use | Label / content |
 |------|----------|-------------|-----------------|
@@ -208,10 +229,10 @@ Entry: [class#method or route].
 
 Goal: digest this path into a readable flow (not full API docs).
 
-Follow skill tool--plantuml-flow-digest:
-- Outline first, then PlantUML [activity|sequence].
+Follow skill tool--plantuml-activity-tree:
+- Outline first, then a top-down PlantUML activity tree. Never a sequence diagram unless this prompt says "sequence diagram".
 - Every step/node: ClassName.methodName + short action.
-- Activity: if/else in code → PlantUML if diamond with true/false (or yes/no) on branches.
+- if/else in code → diamond with yes/no (or true/false). Happy path continues down.
 - Max 15 steps on happy path; collapse helpers into one node (keep method anchor + note for callees).
 - Swimlanes: [layers].
 - Include: [scope]. Exclude: [noise].
@@ -227,7 +248,8 @@ Follow skill tool--plantuml-flow-digest:
 | Mirror every `if` in code | Outcome-changing branches only — but each shown as **if diamond + labeled true/false (or yes/no)** |
 | Hide decision inside one box ("maybe OCPP") | **if (predicate?) then (true) … else (false) … endif** |
 | Nested `parallelStream` as many nodes | One labeled node unless race-relevant |
-| Huge sequence with 20 participants | Black-box subsystems |
+| Any sequence diagram the user did not explicitly request | **Activity tree**; callee is `ClassName.methodName` on an action box |
+| Huge sequence with 20 participants | One activity node plus a note, unless they explicitly asked for a sequence |
 | Diagram whole scheduler | One tick or one entity through the pipeline |
 
 ## Examples
