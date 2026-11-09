@@ -29,7 +29,7 @@ If any of these conditions are met, call `Skill("article-generation-style")` bef
 - Avoid bold text `** **`; use only when truly necessary. The expected exceptions are the starting title of a `>>` titled block, described below, and the proof label `***Proof.***`.
 - A `<proof>` block starts its content with `***Proof.***`. Put that label at the beginning of the first paragraph, with two spaces before the sentence that follows. When the proof opens with a `>>` block, put `***Proof.***` in its own paragraph above the first block. In a Traditional Chinese article the label is `***證明.***`.
 - Do not remove any Chinese comments in code blocks.
-- All coding related syntax must be wrapped in backticks `` ` `` — class names, annotations, method names, keywords, field names, access level constants, and code expressions. This applies to body text and section headings alike.
+- All coding related syntax must be wrapped in backticks `` ` `` — class names, annotations, method names, keywords, field names, access level constants, and code expressions. This applies to body text, section headings, and the frontmatter `title` alike. When the frontmatter `title` contains inline code, wrap each code span in backticks inside the quoted title, for example `title: "Use \`CopyOnWriteArraySet\` as a Set"`. Do not leave a class name, method name, or other code token bare in the title.
 - Section headings must not start with numbering (`1.`, `2.`, `3.`, etc.). Use plain text titles instead.
 - Do not use emoji anywhere.
 - Do not use `---` (horizontal rule) as a section separator.
