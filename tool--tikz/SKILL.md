@@ -45,7 +45,8 @@ TeX order: use `xelatex` if it is already on `PATH`, in TinyTeX, or in `/Library
 ~/.claude/skills/tool--tikz/venv/bin/python \
   ~/.claude/skills/tool--tikz/scripts/render.py \
   --out /absolute/path/out.png <<'EOF'
-\begin{tikzpicture}[line cap=round, line join=round]
+\begin{tikzpicture}[line cap=round, line join=round,
+  show background rectangle, background rectangle/.style={fill=white}]
   \draw (0,0) -- (1,1);
 \end{tikzpicture}
 EOF
@@ -59,7 +60,8 @@ EOF
 ![caption](/assets/img/example.png)
 
 <!-- tikz
-\begin{tikzpicture}[line cap=round, line join=round]
+\begin{tikzpicture}[line cap=round, line join=round,
+  show background rectangle, background rectangle/.style={fill=white}]
   \draw (0,0) -- (1,1);
 \end{tikzpicture}
 -->
@@ -75,6 +77,7 @@ If this session already has the `tikz-renderer` tool `render_tikz`, that tool an
 
 ## TikZ habits
 
+- Fill the background white. A transparent PNG hides black labels on a dark page. Unless the request asks for a transparent background, put `show background rectangle, background rectangle/.style={fill=white}` on the `tikzpicture`. The server already loads the `backgrounds` library. Do not add those options again when the fragment already fills the page. After the render, flatten any remaining transparent pixels onto white: `convert out.png -background white -alpha remove -alpha off out.png`. Do not leave a transparent fringe.
 - Put math in nodes as `$p_a$`, not as plain `pa`.
 - Draw arrows outside the shape they describe. A label that sits on an edge is a failed picture.
 - One figure, one claim. Do not add a second panel the request did not ask for.
