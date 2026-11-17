@@ -228,8 +228,12 @@ left    <anything not met>
 ## Step 6 — record the loop
 
 Every loop leaves one file, written before the loop is reported:
-`docs/loops/<YYYY-MM-DD>-<slug>.md`, or the project's own docs tree if it has
-one. The record is not a summary of the conversation — it is the part a
+`docs/loops/<YYYY-MM-DD>-<NN>-<slug>.md`, or the project's own docs tree if it
+has one. `NN` is the order the loops started that day, zero-padded (`01`,
+`02`, …), so two records from the same day sort in the order they ran; a day
+with one record still gets `01`. Before writing, list `docs/loops/` and take the
+next free number for that date — the date alone is not unique. The record is not
+a summary of the conversation — it is the part a
 stranger would need to re-run the loop a year later:
 
 0. **When** — the date *and* time the loop ran on the operator's clock, as
