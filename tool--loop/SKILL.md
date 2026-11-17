@@ -69,7 +69,7 @@ A check is executable, single-valued and artifact-backed:
 | expected | a value, a property, or a pass/fail the runner prints |
 | artifact | a file a human can inspect when it fails |
 | guards | the repo's existing suite, run too, so a "fix" cannot break neighbours |
-| budget | how many rounds before stopping |
+| budget | rounds before stopping; default 3, stated out loud and adjustable |
 
 Do not start changing code before the check exists. If the check cannot be written
 without code, write the *harness* first — that is part of the work, not overhead.
@@ -116,8 +116,101 @@ Rules that keep the loop honest:
   how much, and ask.
 - **Never stop at "attempted".** The loop ends passing, or it ends reported as
   not done, with the last failure and what remains.
-- **Budget default: 3 rounds.** On exhaustion, stop and report — do not loop
-  forever, and do not claim success.
+- **Budget: 3 rounds by default, counting `change → check` cycles.** Three is the
+  shape of these fixes: round 1 usually shows whether the *check* is right (a
+  criterion that measures the wrong area, or a check that cannot fail), round 2 is
+  the fix, round 3 absorbs the second-order failure (a neighbour case turns red).
+  Past three, the failure is usually not a code defect but a requirement understood
+  differently — that needs a human, not another round. Say the number out loud when
+  the loop starts; the user can raise it for a large feature or lower it for a
+  one-line fix, and "another three" is a normal reply to the report.
+  On exhaustion: stop and report — do not loop forever, and do not claim success.
+
+## Choosing the budget
+
+The budget is decided when the check is written, said out loud, and only the user
+changes it. It counts `change → check` cycles, including the round that calibrates
+the check.
+
+| Situation | Rounds | Why |
+|---|---|---|
+| the check exists and is known good; the fix is local | 2 | one change, one confirmation |
+| the default: a fix plus a neighbouring suite as guard | 3 | calibration, fix, collateral |
+| a new feature across more than one layer, or the check must be written | 5 | the check itself needs a round or two |
+| each round spends an external call (model, network, paid API) | 3 or fewer | freeze the input and calibrate cheaply before spending |
+| the criterion is still prose, or nobody can say what a pass looks like | do not start | go back to Q3 and settle it first |
+
+Two rules keep the number honest:
+
+- **A calibration round counts.** Making the check fail for the *right* reason is
+  work; if round 1 only fixed the check, round 2 is the first real change.
+- **If a round shows the criterion is wrong, stop spending rounds on code.** Re-ask
+  Q3, restate the check, and start a new budget. A long loop on a wrong criterion
+  produces a wrong result, verified.
+
+## When the budget runs out
+
+Stopping is a result, not a failure of the loop. On the last round:
+
+1. **Stop changing code.** Do not try a fourth approach silently.
+2. **Report as not done**, in the Step 5 shape, with `left:` naming the exact unmet
+   condition and the last check output quoted verbatim.
+3. **Classify the blocker** — the classification decides the next move:
+
+   | Blocker | Signal | Next move |
+   |---|---|---|
+   | the criterion is wrong or unmeasurable | the failure shows the check measuring the wrong thing | re-ask Q3, restate the check, start a new budget |
+   | the check itself is broken or flaky | the same command gives different results | fix the check; the failure was the metric, not the code |
+   | a real unknown: spec, dependency, data | the failure points outside the repo | bring the evidence back and ask; do not invent a workaround |
+   | the fix is larger than scoped | every round uncovers another layer | stop looping: plan the work, then loop per step |
+   | environment or flake | fails only sometimes, passes on a rerun | record it as a known flake with the reproduction; never count it as a pass |
+
+4. **Leave the evidence in place.** The failing case stays in the suite — marked
+   expected-failure or skipped *with the reason* if the runner supports it — the
+   input stays committed, the diff stays on the branch. Deleting a case to get green
+   is the one move the loop never makes.
+5. **Ask for the next budget as a multiple choice.** Never continue on your own and
+   never leave it at "stopped". Present the options, the recommended one first, each
+   with its round count and what it leaves behind — and use the structured question
+   tool when the environment has one, a numbered list otherwise.
+
+   ```
+   Not done after 3.
+   Blocker: the det plane is silent inside that block, so the mask has nothing to seed from.
+
+   Which next?
+
+   1. Continue, 2 rounds — (a) seed the mask from the block's ink when the plane is
+      silent, (b) bound it by the balloon box if that over-erases.       [recommended]
+   2. Continue, 1 round — only (b), accept the leftover strokes.
+   3. Redefine the criterion, 0 rounds — restate "no strokes" as "no strokes inside
+      the label frame"; I show you the new check before running it.
+   4. Split into 2 loops — reading first, erase second, each with its own budget.
+   5. Accept and document — keep the case as expected-failure with the reason.
+   ```
+
+   Rules for the options:
+
+   - **Three to five options**, never ten. Always include a "redefine the criterion"
+     and an "accept and document" path, so stopping is a choice and not a dead end.
+   - **The number of rounds is on the option**, not in a paragraph under it.
+   - **One is marked recommended**, with the reason in a clause.
+   - **Every option says what it leaves behind** — a failing case, a split plan, a
+     documented limit.
+   - **X comes from counting named approaches** (table below), adjusted by blocker:
+     a flaky check adds one round; a real unknown or a too-large fix is **0 rounds**
+     and becomes a "redefine" or "split" option.
+
+   | Named approaches | X |
+   |---|---|
+   | 0 — none you believe in | do not offer a "continue" option |
+   | 1 | 1 |
+   | 2 | 2 |
+   | 3 or more | 3 (ceiling for one ask) |
+
+   Only the user's answer starts another loop. If they pick an option without
+   naming a number, run the X on that option; if they pick "redefine", show the new
+   check before spending a round.
 
 ## Step 5 — report
 
