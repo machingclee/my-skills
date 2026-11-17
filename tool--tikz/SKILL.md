@@ -79,6 +79,9 @@ If this session already has the `tikz-renderer` tool `render_tikz`, that tool an
 
 - Fill the background white. A transparent PNG hides black labels on a dark page. Unless the request asks for a transparent background, put `show background rectangle, background rectangle/.style={fill=white}` on the `tikzpicture`. The server already loads the `backgrounds` library. Do not add those options again when the fragment already fills the page. After the render, flatten any remaining transparent pixels onto white: `convert out.png -background white -alpha remove -alpha off out.png`. Do not leave a transparent fringe.
 - Put math in nodes as `$p_a$`, not as plain `pa`.
+- Set a code identifier in `\texttt{}`. A variable, parameter, field, method, class, or keyword that appears in a label is code, so it takes the typewriter font. `\texttt{from}` and `\texttt{subSet}` are right. Leaving the word in the surrounding prose font, or wrapping it in `\mathrm`, is wrong. Ordinary words stay in the text font. A whole call can be one `\texttt{subSet(20, true, 60, false)}`.
 - Draw arrows outside the shape they describe. A label that sits on an edge is a failed picture.
+- No edge or arrow crosses a node, a block, or another label. Route it around, or move the endpoint. An arrow that passes through an element is a failed picture.
+- Give every arrow a visible gap at both ends. It must not start or stop on the border of its source or target, and it must not be so short that the head and the tail touch. A gap of a few millimetres at each end is the minimum. Shorten with `shorten <=2mm, shorten >=2mm`, or place the label far enough away that the shaft is obvious.
 - One figure, one claim. Do not add a second panel the request did not ask for.
 - Keep the fragment free of `\documentclass`, `\usepackage`, and `\begin{document}`.
