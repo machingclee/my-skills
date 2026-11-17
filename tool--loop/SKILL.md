@@ -83,8 +83,8 @@ repo's test suite as part of the loop, following the repo's conventions:
 - assert the invariant, not the literal output, when a model or a service is in
   the loop,
 - prove it fails before the fix and passes after,
-- for this repository, load `comic--regression-suite` and add a case to
-  `fixtures/regression.json`, then run `npm run regression -- <id>`.
+- if the project ships a skill for its suite (a project-local skill), load it and
+  follow its layout; otherwise follow the repo's test conventions.
 
 If the repo has no suite, propose the smallest one (one runner, one case per
 bug, out of the build) and build it as part of the loop.
@@ -125,7 +125,7 @@ Rules that keep the loop honest:
 loop 2/3
 check   <command>            → pass | fail: <first line>
 changed <files>
-case    <id>  (fixtures/…, regression.json)   ← the criterion, saved
+case    <path of the saved test>              ← the criterion, persisted
 proof   fails at <pre-fix state> → passes now
 stable  <assertions that always hold>
 varies  <assertions that depend on model / network / timing>
@@ -134,17 +134,23 @@ left    <anything not met>
 
 ## Turning a criterion into a check
 
-| Prose (what people write) | Check (what a loop needs) |
-|---|---|
-| "shouldn't be translated as 憂鬱" | `forbid: ["憂鬱", "鬱悶"]`, `maxGlyphs: 4` on that group |
-| "the inpaint must not cross the bubble" | uncovered-stroke share under each label ≤ 2%, plus no erased pixel outside the block crop |
-| "must still display 円 or 圓, one character" | `--expect 円,圓` exits 0, and the crop artifact shows exactly one glyph |
-| "off must be as good as high" | same frozen input, answers equal for every region, plus a token ratio bound |
-| "no kana in the translation" | regex over every non-empty answer |
-| "the feature is done" | the new endpoint returns 201 with the body fields X, Y; existing suite green |
+Two things make a criterion loopable: it names an **observable**, and it has a
+**pass condition** a command can evaluate. Sort the request into one of these
+shapes, then write the check to match — the examples here are deliberately
+generic; the project's own skill supplies its vocabulary.
 
-A criterion is ready when you can answer: *which command, what exit code, which
-artifact, and what must stay true?*
+| The wording | The check | The artifact |
+|---|---|---|
+| "it should return / produce X for these inputs" | table-driven test: input → expected value | test report |
+| "the endpoint must do X" | status code + the required body fields + one failure case | request log |
+| "the screen must show X" | render, then assert a property (count, text, position) | screenshot |
+| "it must not crash on empty / bad input" | boundary test: empty, null, wrong type → defined behaviour | test report |
+| "it must stay fast" | ratio against a recorded baseline, not wall-clock | timing table |
+| "same result after the change" | frozen input, compare before and after | diff |
+| "don't break anything else" | the repo's existing suite as a guard | suite output |
+
+If a criterion can only be judged by a human, say so plainly: that loop cannot
+close mechanically and needs review. Do not fake a check for it.
 
 ## Anti-patterns
 
