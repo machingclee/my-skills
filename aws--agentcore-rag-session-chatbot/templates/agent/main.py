@@ -1,7 +1,9 @@
+import json
 import uvicorn
 from strands import Agent
 from ag_ui_strands import StrandsAgent, StrandsAgentConfig, create_strands_app
 from model.load import load_model
+from max_tokens import set_request_max_tokens
 from memory.session import get_s3_session_manager, get_side_question_session_manager
 from tools import tools
 import os
@@ -181,6 +183,26 @@ agui_agent = StrandsAgent(
 )
 
 app = create_strands_app(agui_agent, path="/invocations", ping_path="/ping")
+
+
+@app.middleware("http")
+async def max_tokens_middleware(request, call_next):
+    """Apply the chat slider before the agent runs.
+
+    session_manager_provider runs once per thread, so a later slider change
+    would be ignored if the ceiling were read there. Starlette caches the body
+    after request.body(), and the AG-UI handler still reads it.
+    """
+    path = request.url.path.rstrip("/")
+    if request.method == "POST" and path.endswith("/invocations"):
+        body = await request.body()
+        try:
+            payload = json.loads(body) if body else {}
+            forwarded = payload.get("forwardedProps") or {}
+            set_request_max_tokens(forwarded.get("maxTokens"))
+        except Exception:
+            set_request_max_tokens(None)
+    return await call_next(request)
 
 
 @app.middleware("http")

@@ -10,6 +10,11 @@ import CustomMarkdown from '@/components/CustomMarkdown';
 import Spacer from './Spacer';
 import { useAppDispatch, useAppSelector } from '@/redux/hooks';
 import chatSlice from '@/redux/slices/chatSlice';
+import {
+  MAX_TOKEN_LEVELS,
+  maxTokensFor,
+  normalizeMaxTokenLevel,
+} from './maxTokenLevels';
 import ragApi, {
   sideSeqOf,
   sideThreadId,
@@ -404,6 +409,7 @@ function ChatInterface({
   const dispatch = useAppDispatch();
   const sessions = useAppSelector((state) => state.chat.sessions ?? { sessionIds: [], idToSession: {} });
   const isMaximized = useAppSelector((state) => !!state.chat.chatbotMaximized);
+  const maxTokenLevel = useAppSelector((state) => normalizeMaxTokenLevel(state.chat.chatMaxTokenLevel));
   const [fetchSessionMessages] = ragApi.endpoints.getSessionMessages.useLazyQuery();
   const [fetchSideSessionMessages] = ragApi.endpoints.getSideSessionMessages.useLazyQuery();
   const [saveSideSession] = ragApi.endpoints.saveSideSession.useMutation();
@@ -874,7 +880,7 @@ function ChatInterface({
         content: trimmed,
         messageId: msgId,
         agentState,
-        forwardedProps: { userId },
+        forwardedProps: { userId, maxTokens: maxTokensFor(maxTokenLevel) },
         token,
         emit: (event) => {
           // The "Searching for: …" status doubles as the session name.
@@ -935,7 +941,7 @@ function ChatInterface({
       setLiveLine(null);
       inputRef.current?.focus();
     }
-  }, [input, isLoading, isLoadingHistory, isLoadingBotCredentials, botCredentials, agentState, ensureSessionSaved, dispatch]);
+  }, [input, isLoading, isLoadingHistory, isLoadingBotCredentials, botCredentials, agentState, ensureSessionSaved, dispatch, maxTokenLevel]);
 
   /**
    * Ask a `/btw` side question on its own thread. Its context comes from the parent
@@ -1025,7 +1031,7 @@ function ChatInterface({
         content: sentContent,
         messageId: msgId,
         agentState: sideAgentState,
-        forwardedProps: { userId, sideQuestionOf: parentId },
+        forwardedProps: { userId, sideQuestionOf: parentId, maxTokens: maxTokensFor(maxTokenLevel) },
         token,
         emit: (event) => applyStreamEvent(event, {
           setMessages: setSideMessages,
@@ -1086,7 +1092,7 @@ function ChatInterface({
       // messages but not the cache).
       dispatch(ragApi.util.invalidateTags([{ type: 'SessionMessages', id: threadId }]));
     }
-  }, [sideIsLoading, isLoadingBotCredentials, botCredentials, messages, isLoading, sideAgentState, setActiveSideThread, saveSideSession, dispatch]);
+  }, [sideIsLoading, isLoadingBotCredentials, botCredentials, messages, isLoading, sideAgentState, setActiveSideThread, saveSideSession, dispatch, maxTokenLevel]);
 
   const closeSidePanel = useCallback(() => {
     setSidePanelOpen(false);
@@ -1595,6 +1601,34 @@ function ChatInterface({
           this element, packing the two composers side by side.
         */}
         <div className="chatbot-input">
+          <div className="max-token-slider">
+            <div className="max-token-slider__top">
+              <span>Max tokens</span>
+              <span>
+                {MAX_TOKEN_LEVELS.find((level) => level.id === maxTokenLevel)?.label} · {maxTokensFor(maxTokenLevel).toLocaleString()}
+              </span>
+            </div>
+            <input
+              type="range"
+              min={0}
+              max={MAX_TOKEN_LEVELS.length - 1}
+              step={1}
+              value={MAX_TOKEN_LEVELS.findIndex((level) => level.id === maxTokenLevel)}
+              aria-label="Max tokens"
+              aria-valuetext={`${MAX_TOKEN_LEVELS.find((level) => level.id === maxTokenLevel)?.label} ${maxTokensFor(maxTokenLevel).toLocaleString()}`}
+              onChange={(e) => {
+                const next = MAX_TOKEN_LEVELS[Number(e.target.value)];
+                if (next) dispatch(chatSlice.actions.setChatMaxTokenLevel(next.id));
+              }}
+            />
+            <div className="max-token-slider__stops">
+              {MAX_TOKEN_LEVELS.map((level) => (
+                <span key={level.id} className={level.id === maxTokenLevel ? "is-active" : undefined}>
+                  {level.label}
+                </span>
+              ))}
+            </div>
+          </div>
           <textarea
             ref={inputRef}
             rows={1}

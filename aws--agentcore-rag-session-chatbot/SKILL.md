@@ -756,6 +756,25 @@ the token from `POST /api/login` and send `Authorization: Bearer`.
 - Next: fill `.env`, `create_table.py`, `sync_articles.py --backfill-hashes` (or `--apply` for a new corpus), `agentcore deploy`, attach S3 policy
 - If the MCP runtime was requested: its `invocationUrl`, and that the docs-site deploy (OAuth routes + `/mcp-login`) is separate from `agentcore deploy`
 
+## Session Lambda and the chat monitor
+
+A scaffold is not done until both of these exist. Do not create a second Lambda or a new database when the host already has them.
+
+- The session Lambda, from `serverless deploy` of `agentcore-session-retrieval-lambda` (step 7). It serves the transcript reads and the session list.
+- The monitor schema in `{{POSTGRES_SCHEMA}}`: `"user"` (`username` primary key; quote it, the name is reserved), `chat_session` (`session_id`, `username`, `name`, `position`, `updated_at`), and `chat_rate_limit` (`id`, `quota`, foreign key to `"user"`). The Gmail lives only on `"user"`. `chat_side_session` stays for `/btw`. Stop the migration if `"user"` already exists and is not this table. `gen_random_uuid()` is built in on Postgres 13+, so this schema does not enable `pgcrypto`.
+
+`chat_rate_limit.quota` defaults to `10`. `-100` means unlimited and is never decremented. Any other `quota <= 0` refuses a new session and refuses every later AGUI call, including a follow-up. The send that reduces `quota` from `1` to `0` still runs. A retry of an existing session id does not change the quota. Deleting a session does not refund it. The first session for a user inserts the row at `10` and does not decrement.
+
+## Google sign-in host
+
+When the host already signs in with Google, reuse that credential. Store it in the app's existing persisted store. Do not add a second login. The Cognito `bot` user stays the AgentCore `CUSTOM_JWT` caller.
+
+- Opening the comments UI or the chat calls `GET /api/auth/google` with the stored Google ID token. `401` clears that credential through the persisted store.
+- The chat composer stays closed until a Google user is present. Each send posts the persisted Gmail. The Lambda verifies the Google ID token and accepts the body Gmail only when it equals the token `email`.
+- An allowed send returns a 10-second HS256 ticket. The payload is `gmail` and `issuedAt` (unix seconds). Mint it after the Cognito session is ready, immediately before `POST /invocations`, and put it on `forwardedProps.agentTicket`.
+- The Python agent checks that ticket once at the start of `/invocations` with the shared `AGENT_TICKET_SECRET`. It requires `gmail` and rejects the ticket when now is more than 10 seconds after `issuedAt`. The secret stays in the Lambda env and the runtime env. It is not written into this skill and it is not sent to the browser.
+- `GET`, `PATCH`, and `DELETE /api/sessions` take the Gmail from the verified token. A Gmail in the query string is ignored.
+
 ## Chat session list
 
 Every setup persists the history list per user. There is no localStorage
@@ -881,8 +900,9 @@ of the history — and every one is scoped by `username`.
 ### Frontend wiring
 
 `AuthState` holds `username`, set from the login form only after login
-succeeds. `persistChatState` writes only the window geometry — `sessions` is
-not stored locally, because the database is the source of it.
+succeeds. `persistChatState` writes the window geometry and
+`chatMaxTokenLevel`. `sessions` is not stored locally, because the database
+is the source of it.
 
 - On startup, `getChatSessions(username)` runs once and its result is
   dispatched through `setChatSessions`, which passes it through
@@ -896,6 +916,38 @@ not stored locally, because the database is the source of it.
 
 A browser that previously kept its sessions in `chat-storage` keeps them there,
 unread. Nothing migrates them.
+
+## Max tokens
+
+The chat composer has a four-stop slider. The default is **min**. Each send,
+including a `/btw` side question, puts the chosen ceiling on
+`forwardedProps.maxTokens`. The level itself is `chatMaxTokenLevel` in
+`chat-storage`.
+
+| Level | `max_tokens` | Why this number |
+|---|---|---|
+| min | 8192 | DeepSeek's default when thinking is off |
+| moderate | 65536 | DeepSeek's default when thinking is on |
+| max | 131072 | DeepSeek's cap at reasoning effort max |
+| ultra | 393216 | DeepSeek V4 Flash maximum output, 384K |
+
+These are DeepSeek V4 Flash completion ceilings, not a spend target. The model
+stops when the answer is finished. Thought tokens on the agent turn count
+against the same ceiling. A missing or unknown value stays at min, in the
+browser and in Python.
+
+`max_tokens_middleware` in `main.py` reads the body on every
+`POST /invocations` and calls `set_request_max_tokens` before the handler.
+Do not read it inside `session_manager_provider`: that function runs once per
+thread, so a slider change on a later turn would never apply.
+`_CappedOpenAIModel.format_request` then writes `current_max_tokens()` onto
+the Strands completion. `request.body()` is cached, so the AG-UI handler still
+sees the payload.
+
+Tool completions do not use the slider. `rephrase_query`, `find_tags`, and
+`rerank_chunks` keep their own short `max_tokens` and
+`extra_body=DEEPSEEK_NO_THINKING`. Search and rerank character limits are
+separate from this ceiling.
 
 ## Side questions (`/btw`)
 
@@ -1094,7 +1146,9 @@ Do **not** hook sync into the docs-site GitHub Actions workflow unless that job 
 ## Gotchas
 
 1. DeepSeek V4 Flash thinks by default — tools pass
-   `extra_body={"thinking": {"type": "disabled"}}`.
+   `extra_body={"thinking": {"type": "disabled"}}`. The chat slider's
+   `max_tokens` applies only to the Strands agent turn. Thought tokens on
+   that turn count against it. Tool calls keep their own short cap.
 2. ada-002 is 1536-d. Changing embedding model needs a new table.
 3. `sslmode=require` default. Local PG: `POSTGRES_SSLMODE=disable`.
 4. `wip: true` skips inject. Sync treats a previously injected WIP file as `removed`.
@@ -1185,7 +1239,10 @@ templates/
   attach-s3-policy.sh
   agent/          ← Strands AG-UI RAG agent
     main.py                     system prompt: copy `link` verbatim; two answer shapes;
-                                session_manager_provider routes /btw to the side manager
+                                session_manager_provider routes /btw to the side manager;
+                                max_tokens_middleware reads forwardedProps.maxTokens every request
+    max_tokens.py               min 8192, moderate 65536, max 131072, ultra 393216; default min
+    model/load.py               _CappedOpenAIModel stamps current_max_tokens() onto the agent call
     memory/session.py           S3SessionManager + SideQuestionSessionManager (read parent,
                                 write own prefix; ids from 1e6)
     tools/rerank_chunks.py      2000-char excerpt; page_range + page from the row; finished `link`
@@ -1214,10 +1271,13 @@ templates/
                                     the overlay side panel and its drag handle;
                                     the side-question list (switch / delete / badge);
                                     header drag-to-move + double-click-to-maximize;
-                                    side-history restore in loadSession
+                                    side-history restore in loadSession;
+                                    max-token slider, default min, sent on every turn
+    FloatingChatBot/maxTokenLevels.ts  the four DeepSeek V4 Flash ceilings
     chatSlice.ts                sessions + the persisted `sideSessions` list, its
                                 `lastSideSeq` mint floor, and the legacy-pointer
-                                migration in `normalizeSessions`
+                                migration in `normalizeSessions`;
+                                persisted `chatMaxTokenLevel` (default min)
     ragApi.ts                   getSessionMessages + getSideSessionMessages, and the
                                 `sideThreadId(parent, n)` / `sideSeqOf` id pair
     agentBotApi.ts              GET /api/agent-bot-credentials (served by the host app)

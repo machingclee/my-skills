@@ -3,6 +3,8 @@ import { sideSeqOf } from "@/redux/api/ragApi";
 
 const CHAT_STORAGE_KEY = "chat-storage";
 
+export type ChatMaxTokenLevel = "min" | "moderate" | "max" | "ultra";
+
 /** A `/btw` side thread, as the panel's own list shows it. */
 export type ChatSideSession = {
     /** `<parentSessionId>:btw:<n>` — see `sideThreadId`. */
@@ -47,6 +49,8 @@ type ChatState = {
     chatbotTop?: number;
     chatbotMaximized: boolean;
     sidePanelWidth?: number;
+    /** DeepSeek completion ceiling. Missing and unknown values mean min. */
+    chatMaxTokenLevel?: ChatMaxTokenLevel;
     sessions: ChatSessionsState;
 };
 
@@ -114,6 +118,7 @@ const initialState: ChatState = {
     chatbotTop: stored.chatbotTop,
     chatbotMaximized: !!stored.chatbotMaximized,
     sidePanelWidth: stored.sidePanelWidth,
+    chatMaxTokenLevel: stored.chatMaxTokenLevel,
     sessions: stored.sessions?.sessionIds ? normalizeSessions(stored.sessions) : emptySessions(),
 };
 
@@ -144,6 +149,9 @@ const chatSlice = createSlice({
         },
         setSidePanelWidth(state, action: PayloadAction<number>) {
             state.sidePanelWidth = action.payload;
+        },
+        setChatMaxTokenLevel(state, action: PayloadAction<ChatMaxTokenLevel>) {
+            state.chatMaxTokenLevel = action.payload;
         },
         saveChatSession(state, action: PayloadAction<{ sessionId: string; name?: string }>) {
             const { sessionId, name } = action.payload;
@@ -259,6 +267,7 @@ export function persistChatState(state: ChatState) {
                 chatbotTop: state.chatbotTop,
                 chatbotMaximized: state.chatbotMaximized,
                 sidePanelWidth: state.sidePanelWidth,
+                chatMaxTokenLevel: state.chatMaxTokenLevel ?? "min",
                 sessions: state.sessions,
             },
         })

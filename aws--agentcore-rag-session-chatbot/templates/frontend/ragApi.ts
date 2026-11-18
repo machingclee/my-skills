@@ -197,7 +197,7 @@ export type AgentStreamRequestBody = {
      * question and carries the thread it is a question *about*; the agent's
      * session_manager_provider reads the parent transcript instead of starting empty.
      */
-    forwardedProps: { userId: string; sideQuestionOf?: string };
+    forwardedProps: { userId: string; sideQuestionOf?: string; maxTokens?: number };
 };
 
 export async function fetchAgentStream(

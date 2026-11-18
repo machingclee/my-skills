@@ -362,7 +362,7 @@ export async function runAgentTurn(params: {
       state: params.agentState,
       tools: [],
       context: [],
-      forwardedProps: params.forwardedProps as { userId: string; sideQuestionOf?: string },
+      forwardedProps: params.forwardedProps as { userId: string; sideQuestionOf?: string; maxTokens?: number },
     },
     params.token,
     params.signal ? { signal: params.signal } : undefined,
