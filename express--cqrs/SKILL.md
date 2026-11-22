@@ -498,7 +498,7 @@ import {
 @Actor("User")
 @BoundedContext("Notes")
 @Payload({ text: "string" })
-class CreateNote extends Command<string> {
+class CreateNoteCommand extends Command<string> {
   constructor(readonly text: string) {
     super();
   }
@@ -506,29 +506,29 @@ class CreateNote extends Command<string> {
 
 @BoundedContext("Notes")
 @Payload({ id: "string" })
-class NoteCreated extends DomainEvent {
+class NoteCreatedEvent extends DomainEvent {
   constructor(readonly id: string) {
     super();
   }
 }
 
-@CommandHandler(CreateNote, { inject: [], emits: [NoteCreated] })
-class CreateNoteHandler {
-  async handle(command: CreateNote, context: CommandContext): Promise<string> {
+@CommandHandler(CreateNoteCommand, { inject: [], emits: [NoteCreatedEvent] })
+class CreateNoteCommandHandler {
+  async handle(command: CreateNoteCommand, context: CommandContext): Promise<string> {
     const id = crypto.randomUUID();
-    context.events.add(new NoteCreated(id));
+    context.events.add(new NoteCreatedEvent(id));
     return id;
   }
 }
 
 const app = express();
 app.use(express.json());
-initializeCqrs({ components: [CreateNoteHandler] });
+initializeCqrs({ components: [CreateNoteCommandHandler] });
 app.use(attachCqrs());
 registerEventStorming(app);
 
 app.post("/notes", async (req, res) => {
-  res.status(201).json(await req.commandBus.send(new CreateNote(req.body.text)));
+  res.status(201).json(await req.commandBus.send(new CreateNoteCommand(req.body.text)));
 });
 
 app.listen(3000, () => console.log("http://localhost:3000/event-storming/"));
