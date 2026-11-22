@@ -275,11 +275,19 @@ export class DocumentArchivePolicy {
       new CreateFolderCommand({ pdf_document_id: event.documentId, name: "Archive" }),
     );
   }
+
+  // The same event, a second reaction: a new method, not a wider onArchived.
+  @EventListener(DocumentArchivedEvent, { sends: [] })
+  @Invariant("an archived document keeps the name it was filed under")
+  async onArchivedKeepsName(event: DocumentArchivedEvent): Promise<void> {
+    if (!event.previousName.trim()) throw new Error("an archived document must keep its name");
+  }
 }
 ```
 
-Know three things about policies before writing one.
+Know four things about policies before writing one.
 
+- **Add a listener; never rewrite one.** When a policy must react to an event it already listens to, add a second `@EventListener` method for that event. Do not merge the new rule into the existing method, widen its `sends`, rename it, or move the new `@Invariant` into it, and do not "deduplicate" two listeners on the same event in a refactor. One method is one reaction — its own `@Invariant`, its own `sends` — and the event-storming card draws one row, and one arrow, per method.
 - `@Invariant("...")` is metadata. It is a sentence recorded in the graph for readers, and it enforces nothing. Write the rule as code in the listener.
 - The listener runs inside the command transaction, so a `throw` rolls back the handler's writes and the API answers with the thrown error. That is the supported way to refuse a command from a policy, and it costs one rolled-back statement.
 - `@Policy({ excludeFromFlow: true })` keeps a listener that subscribes to `DomainEvent` out of the diagram, which is what a development event log wants. Otherwise every node gains an edge.
@@ -461,7 +469,7 @@ curl -sI localhost:3000/event-storming/                 # 200 text/html
 curl -s -X POST localhost:3000/documents/1/archive -H 'content-type: application/json' -d '{"name":"x"}'
 ```
 
-In `GET /docs/commands`, confirm the new command appears with its handler, the event under its bounded context, the policy with its `sends` edge, the invariant under `invariants`, and the payload fields on each node. If a node is missing, it is almost always absent from the component list; if a payload is empty, `@Payload` is missing.
+In `GET /docs/commands`, confirm the new command appears with its handler, the event under its bounded context, the policy with its `sends` edge, the invariant under `invariants`, and the payload fields on each node. A policy that reacts to one event twice must show two `listeners` entries, and the diagram two arrows into its card; a single entry means the second rule was merged into the first method. If a node is missing, it is almost always absent from the component list; if a payload is empty, `@Payload` is missing.
 
 ## Pitfalls
 
@@ -475,6 +483,7 @@ In `GET /docs/commands`, confirm the new command appears with its handler, the e
 | event handler never runs | event was constructed but not added to `context.events`, or the policy is not in the component list | add the event and register the policy |
 | command hangs or times out | handler called `$transaction` inside the ambient transaction | call `uow.db()` and drop the inner transaction |
 | invariant text does not stop anything | `@Invariant` is metadata | write the check as code in the listener |
+| asked to react to an event the policy already reacts to | the new rule was merged into the existing `@EventListener` | add a second listener method for that event; one method is one reaction (Step 7) |
 | diagram page answers 404 with build text | no asset directory with an `index.html` | ship the folder and point `EVENT_STORMING_DIR` at it |
 | diagram loads but draws nothing | the page cannot read `/docs/commands`, usually an auth guard on that path | exempt the graph or let the page send the credential |
 
