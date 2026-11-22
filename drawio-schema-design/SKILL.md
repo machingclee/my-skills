@@ -15,6 +15,16 @@ The picture standard is https://drive.google.com/file/d/1ARx2oOFIIS8csweop2muQG9
 
 Copy spelling as stored. Sales names include `aggrement`, `notifiaction_notification`, `notificaiton_redirect_action`, `manufacfuring_year`, `manufacfuring_country`, `orginal_price`, `unregisterd`, `documenent_url`, enum values `GENERATED_PREOVISIONAL_SALES_AGREEMENT`, `SIGNED_PREOVISIONAL_SALES_AGREEMENT`, and `GLOABL`. The Drive file spells `uer_name`. Keep mixed FK spellings as separate columns: `selling_orderId`, `selling_offerId`, `onclick_action_Id`, and the different column `onclick_action_id`.
 
+## Tooling
+
+Use the `drawio` MCP server (`@drawio/mcp`) for every diagram. Do not paste raw XML into chat, and do not write or edit a `.drawio` file by hand.
+
+- `open_drawio_xml` with the diagram XML opens it in the draw.io editor; the user saves it from there. Its `postLayout` and `routing` options are alternatives, not a pair.
+- `get_drawio_reference` with `format: "xml"` only for topics the Skeleton below does not cover (layers, tags, containers, tables).
+- For an existing local `.drawio` file, inspect and change its pages with `list_pages` / `get_page` / `set_page` instead of rewriting the file.
+- `open_drawio_csv` and `open_drawio_mermaid` are for CSV or Mermaid input; this skill's output is draw.io XML.
+- If the MCP server is unavailable, say so. Do not fall back to a hand-written file or a raw XML dump.
+
 ## Names
 
 A model name is the table name, snake_case. A scalar field name is the column name, snake_case. This schema has no field `@map`.
