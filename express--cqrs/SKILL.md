@@ -248,6 +248,18 @@ Two dispatch timings exist, and picking the wrong one changes the transaction bo
 
 Use `add` for a reaction that must be consistent with the write. Use `addTransactional` for a side effect that must not abort a committed write, such as a notification.
 
+Declare the deferred emissions on the **handler**, not on the event class — the same event can be immediate from one handler and post-commit from another, and timing belongs to the emission:
+
+```ts
+@CommandHandler(ArchiveDocumentCommand, {
+  inject: [PrismaUnitOfWork],
+  emits: [DocumentArchivedEvent, DocumentArchivedNoticeEvent],
+  afterCommit: [DocumentArchivedNoticeEvent],
+})
+```
+
+Every `afterCommit` entry must also appear in `emits` (startup rejects one that does not). `context.events.addTransactional(...)` then matches the declaration, while `add(...)` on a declared event throws. `GET /docs/commands` reports it as `postCommitEmits`; the event-storming page puts a clock on that command → event edge, and the event card carries a `Transactional` badge only when every handler that emits the event defers.
+
 ## Step 7: Add A Policy Reaction
 
 A policy is where a business rule that spans events lives, and it is the only place where `@Invariant` is allowed.
