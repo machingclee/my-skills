@@ -3,10 +3,15 @@ name: drawio-schema-design
 description: >-
   Draw a database schema as a draw.io file, and convert that diagram back into
   Prisma, using this author's convention. Tables and columns stay snake_case
-  physical names. A filled diamond is ownership cardinality only. A plain arrow
-  is a foreign key. An enum is "column: VALUE | VALUE". Use when creating or
-  editing a schema ERD, or when turning a .drawio data model into schema.prisma
-  or the reverse. The Prisma conventions were taken from esales-prisma.
+  physical names. A filled diamond is composition: the child belongs to that
+  one parent. A hollow diamond is a many-to-many, or a folder grouping its
+  members (`note_folder`, `pdf_tag_folder`, `pdf_document_folder`). Neither diamond touches a
+  junction table. A plain arrow is a foreign key. No diamond or arrow
+  crosses a table; route both through the gaps. Two connectors never share a
+  run: not the same y, and not the same x. An enum is
+  "column: VALUE | VALUE". Use when creating or editing a schema ERD, or when
+  turning a .drawio data model into schema.prisma or the reverse. The Prisma
+  conventions were taken from esales-prisma.
 ---
 
 # draw.io schema design
@@ -60,13 +65,27 @@ An enum field is one row, field name, then the variants in declaration order, se
 
 ## Aggregate
 
-The diamond is ownership between two table shapes, not between columns. The source is the `1` side. Filled `diamondThin`, no arrowhead on the child, labels `1` and `0..*` or `0..1`. These two files use only those two child multiplicities.
+The diamond is between two table shapes, not between columns. The source is the `1` side. `diamondThin`, no arrowhead on the child, labels `1` and `0..*` or `0..1`. These two files use only those two child multiplicities.
+
+A filled diamond is composition: the child belongs to that one parent. A many-to-many uses a hollow diamond. A folder that groups members uses that same hollow diamond, `1` to `0..*`, because membership is not composition. `note_folder` diamonds to `note`. `pdf_tag_folder` diamonds to `pdf_tag`. `pdf_document_folder` diamonds to `pdf_document`. The fill is the only difference. `startFill=1` is filled. `startFill=0` is hollow.
+
+Never draw a diamond with a junction table. A junction is the link (`rel_*`, `car_rel_*`, `selling_rel_*`, or any table whose job is the pair of foreign keys). It is never the source or the target of a diamond. Its foreign keys are plain arrows. A many-to-many diamond connects the two entity tables, is hollow, and routes above them. `rel_pdf_document_folder_pdf_document` has two arrows and no diamond. The document still owns `note_folder`, `note`, and `highlight` with a filled diamond.
+
+Composition, the child belongs to the parent:
 
 ```
 edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=0.75;exitY=0;exitDx=0;exitDy=0;entryX=0.25;entryY=0;entryDx=0;entryDy=0;fillColor=#ffe6cc;strokeColor=#d79b00;startArrow=diamondThin;startFill=1;startSize=12;endArrow=none;endFill=0;
 ```
 
+Many-to-many, hollow:
+
+```
+edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=0.75;exitY=0;exitDx=0;exitDy=0;entryX=0.25;entryY=0;entryDx=0;entryDy=0;fillColor=#ffe6cc;strokeColor=#d79b00;startArrow=diamondThin;startFill=0;startSize=12;endArrow=none;endFill=0;
+```
+
 Route it above both tables. Label style `edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];`, with `1` at `x="-0.84"` and the child multiplicity at `x="0.9"`. A self-aggregate uses the same diamond and routes outside the box (`exitX=0.75;exitY=0`, `entryX=1;entryY=0.25`).
+
+No connection crosses a table. A diamond and a foreign-key arrow both travel in the gaps and the margins: above the tables, beside them, or through a gutter between them. A segment may touch the border of a table only where it enters or leaves that table. Two lines may cross each other at a point in a gutter. They do not overlap. A horizontal run does not share its y with another horizontal run, and a vertical run does not share its x with another vertical run. Give each connector its own lane. If several arrows enter one column, land them on different points of that row so the last stubs do not sit on one line. If a straight route would pass through a table, or would lie on a lane another line already uses, move the tables or bend the line until every table body is clear and every run has its own x or y.
 
 The sales schema has no `onDelete`. The diamond does not become `onDelete: Cascade`, and Cascade does not become a diamond.
 
@@ -84,7 +103,7 @@ A self-diamond and a self-link are different pictures.
 - Drive `comment` diamonds to itself, `1` to `0..*`, and has no parent-comment column. `rel_comment_comment` carries `parent_comment_id` and `child_comment_id`, plus its own `id`. The link table has arrows and no diamond.
 - Sales has no self-diamond. `selling_car` reaches itself through `selling_rel_carsalesoffer_carspecialoffer`, with `@relation("OriginalItem")` and `@relation("SpecialOfferItem")`. Draw two arrows from that join. Draw no diamond on `selling_car`.
 
-Do not diamond a pointer that goes the other way (`car_model.avatar_id` → `car_model_avatar.id`, named `"selected-avatar"`). Do not diamond a join model's FKs (`car_rel_carmodel_annotation`, either `selling_rel_*` model, Drive `user_rate_limit`, Drive `rel_comment_comment`). Those are arrows only.
+Do not diamond a pointer that goes the other way (`car_model.avatar_id` → `car_model_avatar.id`, named `"selected-avatar"`). A join model's foreign keys are arrows only (`car_rel_carmodel_annotation`, either `selling_rel_*` model, Drive `user_rate_limit`, Drive `rel_comment_comment`). Do not draw the diamond from a parent onto that join table either.
 
 ## Foreign key
 
@@ -94,7 +113,7 @@ One plain arrow per `@relation` that has `fields` and `references`, from the `fi
 edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=0;exitY=0.5;exitDx=0;exitDy=0;entryX=1;entryY=0.5;entryDx=0;entryDy=0;
 ```
 
-Exit from the side that faces the target. The arrow's target cell is the `references` column. Every sales `@relation` uses `references: [id]`. The Drive file also targets a non-id column: `user_rate_limit.user_email` → `user.user_email`, while `comment.user_email` → `user.id`. The source column name need not match the target model or the target column (`selling_sales_offer_id` → `selling_car.id`, `timeslot_option_id` → `booking_timeslot_option.id`, `container_id`, `ad_media_id`, `sales_item_id`).
+Exit from the side that faces the target. The arrow's target cell is the `references` column. The same clearance rule as Aggregate applies: the arrow does not cross any table, and it does not share a horizontal y or a vertical x with another connector. Every sales `@relation` uses `references: [id]`. The Drive file also targets a non-id column: `user_rate_limit.user_email` → `user.user_email`, while `comment.user_email` → `user.id`. The source column name need not match the target model or the target column (`selling_sales_offer_id` → `selling_car.id`, `timeslot_option_id` → `booking_timeslot_option.id`, `container_id`, `ad_media_id`, `sales_item_id`).
 
 A scalar is an arrow only when it is the `fields` list of a `@relation`. These are columns, and they get no arrow: `user_id`, `created_by_user_id`, `echarge_user_id`, `select_by_user_identifier`, `read_by_user_id`, `used_selected_timeslot_id`, `offer_id` on `selling_rel_offer_handlingfee`, and Drive `article_uuid`. `offer_id` stays a plain `Int` inside `@@unique([offer_id, handlingfee_id])`. The relation column next to it is `selling_offerId Int?`.
 
@@ -108,7 +127,7 @@ A sales ownership diamond is paired with the child's FK arrow. The Drive self-di
 2. One row per scalar field, schema order, exact name. Skip a field whose type is a model or a list of a model (`sellingItems`, `car_model`, `sellingOffer`, `avatar_for_car_model`).
 3. Enum row as under Tables. Boolean and every other scalar stay the bare name. `String?` and `Int?` are still just the name.
 4. One arrow per `@relation(fields, references)`, including an optional one (`selling_offerId`). Follow Foreign key for columns that look like ids and are not relations.
-5. Diamond only for the ownership cases under Aggregate, one diamond per child. `avatar_id` is a second arrow and no second diamond. A self-link through a named join is two arrows and no self-diamond.
+5. Diamond only for the cases under Aggregate, one diamond per child, and never with a junction table as either end. Composition is filled (`startFill=1`). A many-to-many diamonds the two entity tables with a hollow diamond (`startFill=0`). A folder grouping is hollow too: `note_folder` to `note`, `pdf_tag_folder` to `pdf_tag`, `pdf_document_folder` to `pdf_document`. `avatar_id` is a second arrow and no second diamond. A self-link through a named join is two arrows and no self-diamond.
 6. `@relation("selected-avatar")`, `@relation("all-avatars")`, `@relation("OriginalItem")`, and `@relation("SpecialOfferItem")` are not drawn. Keep them in Prisma.
 
 ## Draw.io to Prisma
@@ -135,8 +154,9 @@ Do not turn a `@@unique` join into `@@id`, or the reverse.
 | `role: USER \| ADMIN` | MySQL enum, variants in that order |
 | Arrow `car_model_id` → `id` | `@relation(fields: [car_model_id], references: [id])`, no `onDelete` |
 | Arrow onto a non-id column | `references` is that column (`user.user_email` in the Drive file) |
-| Diamond `1` / `0..*` | back-relation `Child[]`, child FK required |
-| Diamond `1` / `0..1` | back-relation `Child?`, child FK required and unique, in the form under Aggregate |
+| Filled diamond `1` / `0..*` | composition. Back-relation `Child[]`, child FK required |
+| Filled diamond `1` / `0..1` | composition. Back-relation `Child?`, child FK required and unique, in the form under Aggregate |
+| Hollow diamond `1` / `0..*` | many-to-many, or a folder grouping its members. The two entity tables are the ends. A many-to-many junction keeps the two foreign-key arrows and is not either end of the diamond. `note_folder` and `pdf_tag_folder` keep an optional member FK (`note.note_folder_id`, `pdf_tag.pdf_tag_folder_id`). Do not turn the hollow diamond into a required child FK on one entity |
 
 A new model also gets `@@index` on each FK column. It writes `id` (when it has one), then scalar rows in diagram order, then relation fields, then `@@` attributes. An existing model keeps its own field order. Relation fields come before the FK scalars in `car_rel_carmodel_annotation`, `booking_assigned_sales`, and `booking_assigned_customer`. `selling_rel_carsalesoffer_carspecialoffer` puts the two FK scalars first. `selling_rel_offer_handlingfee` puts `offer_id` and `handlingfee_id` first, the relation fields next, and `selling_offerId` last.
 
